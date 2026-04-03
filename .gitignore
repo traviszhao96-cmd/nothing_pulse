@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Virtual env
+.venv/
+venv/
+
+# Secrets and local overrides
+.env
+config.yaml
+
+# Runtime artifacts
+data/
+reports/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log

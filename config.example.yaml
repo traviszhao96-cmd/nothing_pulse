@@ -1,0 +1,326 @@
+database_path: ./data/feedback.db
+report_dir: ./reports
+lookback_hours: 48
+# strict: 非 camera 直接丢弃；review: 全量保留并打标；off: 完全不做 camera 过滤
+camera_filter_mode: strict
+
+# Step 1: Camera-only topic definition
+camera_keywords:
+  - camera
+  - photo
+  - video
+  - lens
+  - zoom
+  - focus
+  - autofocus
+  - exposure
+  - night mode
+  - portrait
+  - stabilization
+  - ois
+  - eis
+  - 相机
+  - 拍照
+  - 录像
+  - 夜景
+  - 对焦
+  - 曝光
+  - 人像
+  - 防抖
+
+camera_categories:
+  画质:
+    - 画质
+    - photo quality
+    - blurry
+    - 模糊
+    - 锐度
+    - 细节
+    - noise
+    - 噪点
+  对焦:
+    - 对焦
+    - autofocus
+    - focus
+    - 跑焦
+  曝光:
+    - 曝光
+    - exposure
+    - 过曝
+    - 欠曝
+  夜景:
+    - 夜景
+    - night mode
+    - low light
+    - 暗光
+  人像:
+    - 人像
+    - portrait
+    - bokeh
+    - 背景虚化
+  视频:
+    - 视频
+    - video
+    - 录像
+    - fps
+    - frame drop
+  防抖:
+    - 防抖
+    - stabilization
+    - eis
+    - ois
+    - 抖动
+  性能发热:
+    - 发热
+    - heating
+    - lag
+    - stutter
+    - 卡顿
+    - 闪退
+  功能建议:
+    - 建议
+    - 希望
+    - wishlist
+    - feature request
+    - please add
+
+# Optional model/product hints to reduce irrelevant fetches before camera filtering.
+product_keywords:
+  - nothing phone
+  - cmf phone
+  - nothing os
+  - frogger
+  - pacman
+  - phone 3a
+  - phone 3a pro
+  - phone 2a
+
+dedupe:
+  jaccard_threshold: 0.9
+  lookback_days: 7
+
+schedule:
+  timezone: Asia/Shanghai
+  hour: 9
+  minute: 0
+
+# Step 2: collectors
+sources:
+  nothing_community:
+    enabled: true
+    base_url: https://nothing.community
+    pages: 2
+    include_keywords:
+      - camera
+      - photo
+      - video
+      - 相机
+      - 拍照
+
+  google_news:
+    enabled: true
+    query: '"Nothing Phone" (camera OR photo OR video OR review)'
+    language: en-US
+    country: US
+    edition: US:en
+    limit: 40
+    fetch_article_body: true
+    article_timeout_seconds: 10
+    article_max_chars: 6000
+
+  custom_rss:
+    enabled: false
+    fetch_article_body: true
+    article_timeout_seconds: 10
+    article_max_chars: 6000
+    feeds:
+      - name: Android Authority
+        url: https://www.androidauthority.com/feed/
+        include_keywords:
+          - nothing
+          - camera
+
+  youtube:
+    enabled: false
+    api_key: ${YOUTUBE_API_KEY}
+    query: "Nothing Phone camera review"
+    limit: 30
+    order: date
+    region_code: US
+    language: en
+    include_keywords:
+      - nothing
+      - camera
+      - review
+
+  youtube_yt_dlp:
+    enabled: true
+    executable: yt-dlp
+    query: "Nothing Phone camera review"
+    limit: 30
+    timeout_seconds: 90
+    include_keywords:
+      - nothing
+      - camera
+      - review
+
+  x_twscrape:
+    enabled: false
+    # twscrape 账号池数据库路径（需先用 twscrape 登录账号）
+    db_path: ./data/twscrape_accounts.db
+    query: '"Nothing Phone" (camera OR photo OR video)'
+    limit: 60
+    include_keywords:
+      - nothing
+      - camera
+      - photo
+      - video
+
+  x_snscrape:
+    enabled: false
+    # 当 twscrape 不可用时可先用 snscrape 快速验证
+    query: '"Nothing Phone" (camera OR photo OR video)'
+    limit: 60
+    timeout_seconds: 30
+    nitter_instances:
+      - https://nitter.net
+      - https://nitter.poast.org
+    include_keywords:
+      - nothing
+      - camera
+      - photo
+      - video
+
+  instagram_instaloader:
+    enabled: false
+    # 可以填 hashtag 或 profile，两者至少一个
+    hashtags:
+      - nothingphone
+      - nothingcamera
+    profiles: []
+    limit: 60
+    timeout_seconds: 45
+    include_keywords:
+      - nothing
+      - camera
+      - photo
+      - video
+    # 可选：私有内容/更稳定抓取可配置账号
+    username: ${INSTAGRAM_USERNAME}
+    password: ${INSTAGRAM_PASSWORD}
+
+  reddit:
+    enabled: true
+    client_id: ${REDDIT_CLIENT_ID}
+    client_secret: ${REDDIT_CLIENT_SECRET}
+    user_agent: NothingCameraPulse/1.0
+    # 可选：为 Reddit 单独设置回溯窗口（天），不影响其他源
+    lookback_days: 730
+    subreddits:
+      - NOTHING
+      - Android
+      - Smartphone
+    query: "nothing phone"
+    limit: 120
+    per_subreddit_limit: 80
+    include_submissions: true
+    include_comments: true
+    # 若 OAuth 凭据为空/失效，自动降级到 pullpush（免 OAuth）
+    allow_pullpush_fallback: true
+    pullpush_base_url: https://api.pullpush.io/reddit/search
+    pullpush_timeout_seconds: 30
+    time_filter: month
+
+  reddit_snscrape:
+    enabled: false
+    # 若 snscrape 在当前 Python 版本不可用，会自动降级到 reddit 公共接口抓取
+    subreddits:
+      - NOTHING
+      - Android
+      - Smartphone
+    query: '"Nothing Phone" (camera OR photo OR video)'
+    limit: 80
+    include_keywords:
+      - nothing
+      - camera
+      - photo
+      - video
+
+  mock_file:
+    enabled: false
+    path: ./examples/sample_feedback.json
+
+# Step 3+: Local AI enrichment (可复用 videosummary 的本地 OpenAI 兼容 API)
+local_ai:
+  enabled: false
+  # 例如本地 vLLM / Ollama OpenAI 兼容地址
+  base_url: http://127.0.0.1:11434/v1
+  api_key: local-key
+  model: qwen2.5:14b-instruct
+  temperature: 0.1
+  max_tokens: 1200
+  timeout_seconds: 90
+  retries: 1
+  # 推荐使用项目内 v2 标签 prompt（一级标签英文枚举 + severity 统一）
+  prompt_path: ./prompts/deepseek_tagging_v2.md
+
+# Video processing (manual + nightly auto)
+video_processing:
+  enabled: false
+  videosummary_python: /Users/travis.zhao/videosummary/venv/bin/python
+  videosummary_script: /Users/travis.zhao/videosummary/transcribe.py
+  prompt_name: camera_feedback
+  model_size: tiny
+  timeout_seconds: 1800
+  max_items_per_run: 8
+  nightly_enabled: false
+  nightly_hour: 2
+  nightly_minute: 30
+  nightly_timezone: Asia/Shanghai
+
+# Step 4: Lark bitable sync
+lark:
+  enabled: false
+  base_url: https://open.feishu.cn
+  app_id: ${LARK_APP_ID}
+  app_secret: ${LARK_APP_SECRET}
+  bitable_app_token: ${LARK_BITABLE_APP_TOKEN}
+  bitable_table_id: ${LARK_BITABLE_TABLE_ID}
+  # true 时只同步从未同步过的新记录；不会回刷旧记录
+  only_sync_new_records: false
+  # 自动补齐缺失字段（按文本字段创建），便于空表首次同步
+  auto_create_fields: true
+  field_mapping:
+    feedback_uid: 反馈ID
+    point_uid: 观点ID
+    point_index: 观点序号
+    point_source_code: 渠道缩写
+    point_sentiment: 观点情绪
+    point_severity: 观点严重级别
+    point_text: 观点内容
+    point_text_original: 观点原文
+    point_language: 原文语言
+    point_primary_tag: 一级标签
+    point_secondary_tags: 二级标签
+    point_timestamp: 观点时间点
+    point_timestamp_seconds: 观点时间秒
+    title: 标题
+    url: 链接
+    source: 平台
+    source_section: 来源补充
+    author: 作者
+    published_at: 发布时间
+    camera_category: 问题类型
+    sentiment: 情绪
+    sentiment_reason: 情绪依据
+    severity: 严重级别
+    source_actor_type: 来源身份
+    source_actor_reason: 来源判断依据
+    domain_subtags: 二级标签
+    product_tags: 产品标签
+    camera_keyword_hits: 命中关键词
+    video_candidate: 待补视频转写
+    summary: 摘要
+    content: 原文
+    report_date: 入库日期
+    status: 跟进状态

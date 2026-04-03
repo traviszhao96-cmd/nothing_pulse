@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>视频反馈详情 - Nothing Camera Pulse</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero reveal">
+        <div>
+          <p class="kicker">Nothing Camera Pulse</p>
+          <h1>视频反馈详情</h1>
+          <p class="subtitle">用于承载视频转写分析和后续深挖内容的二级页面</p>
+        </div>
+        <div class="controls">
+          <a href="/" class="back-link">返回总览</a>
+        </div>
+      </header>
+
+      <section class="panel reveal">
+        <div id="videoDetailHeader"></div>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-title">摘要与状态</div>
+        <div id="videoDetailSummary"></div>
+        <p id="videoDetailStatus" class="runtime-result"></p>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-title">结构化观点</div>
+        <div id="videoDetailPoints" class="detail-points-wrap"></div>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-title">正文摘录</div>
+        <p id="videoDetailContent" class="detail-summary"></p>
+      </section>
+    </main>
+
+    <script src="/runtime-config.js"></script>
+    <script src="/video.js"></script>
+  </body>
+</html>

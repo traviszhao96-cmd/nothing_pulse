@@ -1,0 +1,48 @@
+database_path: ./data/demo_feedback.db
+report_dir: ./reports
+lookback_hours: 240
+
+camera_keywords:
+  - camera
+  - photo
+  - video
+  - focus
+  - night mode
+  - 相机
+  - 拍照
+  - 录像
+  - 人像
+  - 对焦
+  - 防抖
+
+camera_categories:
+  画质: [画质, blurry, 模糊, sharpness, 噪点]
+  对焦: [对焦, focus, autofocus, 跑焦]
+  曝光: [曝光, exposure, 过曝, 欠曝]
+  夜景: [夜景, night mode, low light]
+  人像: [人像, portrait, bokeh]
+  视频: [视频, video, 录像, fps]
+  防抖: [防抖, stabilization, eis, ois]
+  性能发热: [发热, heating, lag, 卡顿, 闪退]
+  功能建议: [建议, 希望, wishlist, feature]
+
+product_keywords:
+  - nothing
+  - phone
+
+dedupe:
+  jaccard_threshold: 0.9
+  lookback_days: 7
+
+schedule:
+  timezone: Asia/Shanghai
+  hour: 9
+  minute: 0
+
+sources:
+  mock_file:
+    enabled: true
+    path: ./examples/sample_feedback.json
+
+lark:
+  enabled: false

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nothing Camera Pulse Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-left"></div>
+    <div class="ambient ambient-right"></div>
+    <main class="app-shell">
+      <header class="hero reveal">
+        <div>
+          <p class="kicker">Nothing Camera Pulse</p>
+          <h1>相机反馈总览</h1>
+          <p class="subtitle">支持全量反馈回看与相机关联筛选的每日趋势与反馈明细分析</p>
+        </div>
+        <div class="controls">
+          <div class="controls-grid">
+            <section class="control-col">
+              <p class="control-col-title">日期</p>
+              <label for="startDate">开始日期</label>
+              <input id="startDate" type="date" />
+              <label for="endDate">结束日期</label>
+              <input id="endDate" type="date" />
+            </section>
+            <section class="control-col">
+              <p class="control-col-title">查看与刷新</p>
+              <label for="scopeSelect">查看范围</label>
+              <select id="scopeSelect">
+                <option value="camera">仅相机相关</option>
+                <option value="all">全部反馈</option>
+              </select>
+              <button id="refreshButton" type="button">刷新数据</button>
+            </section>
+          </div>
+        </div>
+      </header>
+
+      <section id="metrics" class="metrics reveal"></section>
+
+      <section class="panel reveal">
+        <div class="panel-title">运行状态与视频处理</div>
+        <div id="runtimeStatus" class="runtime-status"></div>
+        <div class="runtime-actions">
+          <button id="refreshStatusButton" type="button">刷新状态</button>
+          <button id="syncLarkButton" type="button">同步 Lark（前 200 条）</button>
+          <button id="exportVideoTasksButton" type="button">导出视频任务</button>
+          <button id="runVideoProcessButton" type="button">手动分析视频（前 5 条）</button>
+        </div>
+        <p id="runtimeActionResult" class="runtime-result"></p>
+      </section>
+
+      <section class="grid-layout">
+        <article class="panel reveal">
+          <div class="panel-title">问题类型分布</div>
+          <div id="categoryBars" class="bars"></div>
+        </article>
+
+        <article class="panel reveal">
+          <div class="panel-title">情绪分布</div>
+          <div id="sentimentBars" class="bars"></div>
+        </article>
+
+        <article class="panel reveal">
+          <div class="panel-title">来源身份分布</div>
+          <div id="originBars" class="bars"></div>
+        </article>
+
+        <article class="panel reveal">
+          <div class="panel-title">内容类型分布</div>
+          <div id="mediaBars" class="bars"></div>
+        </article>
+
+        <article class="panel reveal">
+          <div class="panel-title">领域分布</div>
+          <div id="domainBars" class="bars"></div>
+        </article>
+
+        <article class="panel reveal wide">
+          <div class="panel-title">趋势（总反馈量 / 负面反馈量）</div>
+          <div id="trendChart" class="trend-chart"></div>
+        </article>
+
+        <article class="panel reveal wide">
+          <div class="panel-title">高频关键词</div>
+          <div id="keywordCloud" class="keyword-cloud"></div>
+        </article>
+
+        <article class="panel reveal wide">
+          <div class="panel-title">二级标签 Top</div>
+          <div id="subTagCloud" class="keyword-cloud"></div>
+        </article>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-title">AI 观点提炼</div>
+        <div class="insight-grid">
+          <div>
+            <h4>好评</h4>
+            <ul id="positiveInsights" class="insight-list"></ul>
+          </div>
+          <div>
+            <h4>中性</h4>
+            <ul id="neutralInsights" class="insight-list"></ul>
+          </div>
+          <div>
+            <h4>差评</h4>
+            <ul id="negativeInsights" class="insight-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel reveal">
+        <div class="panel-title">反馈明细（最新 30 条 + 视频分析）</div>
+        <div id="detailList" class="case-list"></div>
+      </section>
+    </main>
+
+    <template id="metricTemplate">
+      <article class="metric-card">
+        <p class="metric-label"></p>
+        <p class="metric-value"></p>
+      </article>
+    </template>
+
+    <script src="/runtime-config.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

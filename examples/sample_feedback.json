@@ -1,0 +1,29 @@
+[
+  {
+    "id": "demo-1",
+    "title": "Phone 3a Pro camera focus keeps hunting in low light",
+    "summary": "Autofocus fails in night mode and videos are shaky.",
+    "content": "After the latest update, camera focus keeps hunting in low light. Video stabilization is unstable and results are blurry.",
+    "url": "https://example.com/post/1",
+    "author": "demo_user_1",
+    "published_at": "2026-03-31T09:10:00+08:00"
+  },
+  {
+    "id": "demo-2",
+    "title": "希望相机增加更快的人像抓拍",
+    "summary": "人像模式出片慢，建议增加快速抓拍开关。",
+    "content": "Phone 2a 在人像模式下等待时间较长，希望增加快速抓拍选项，提升人像体验。",
+    "url": "https://example.com/post/2",
+    "author": "demo_user_2",
+    "published_at": "2026-03-31T10:00:00+08:00"
+  },
+  {
+    "id": "demo-3",
+    "title": "Nothing OS battery widget is cool",
+    "summary": "I like the new battery widget.",
+    "content": "No imaging topic here, just a UI compliment.",
+    "url": "https://example.com/post/3",
+    "author": "demo_user_3",
+    "published_at": "2026-03-31T10:30:00+08:00"
+  }
+]
