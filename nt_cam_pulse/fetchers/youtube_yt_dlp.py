@@ -12,11 +12,44 @@ from .base import BaseCollector
 class YouTubeYtDlpCollector(BaseCollector):
     def fetch(self, since: datetime) -> list[FeedbackItem]:
         executable = str(self.config.get("executable", "yt-dlp")).strip() or "yt-dlp"
-        query = str(self.config.get("query", "")).strip() or self._default_query()
+        raw_queries = self.config.get("queries", [])
+        queries = [str(value).strip() for value in raw_queries if str(value).strip()]
+        if not queries:
+            fallback_query = str(self.config.get("query", "")).strip() or self._default_query()
+            queries = [fallback_query]
         limit = max(1, min(100, int(self.config.get("limit", 30))))
         timeout = max(15, int(self.config.get("timeout_seconds", 90)))
         include_keywords = [str(keyword).lower() for keyword in self.config.get("include_keywords", []) if keyword]
 
+        since_utc = since.astimezone(timezone.utc)
+        items: list[FeedbackItem] = []
+        seen_ids: set[str] = set()
+        for query in queries:
+            completed = self._run_yt_dlp(executable=executable, query=query, limit=limit, timeout=timeout)
+            for raw_line in (completed.stdout or "").splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                item = self._parse_item(
+                    data=data,
+                    query=query,
+                    include_keywords=include_keywords,
+                    since=since_utc,
+                )
+                if not item:
+                    continue
+                if item.source_item_id in seen_ids:
+                    continue
+                seen_ids.add(item.source_item_id)
+                items.append(item)
+        return items
+
+    def _run_yt_dlp(self, executable: str, query: str, limit: int, timeout: int) -> subprocess.CompletedProcess:
         command = [
             executable,
             "--dump-json",
@@ -41,27 +74,7 @@ class YouTubeYtDlpCollector(BaseCollector):
         if completed.returncode != 0 and not (completed.stdout or "").strip():
             stderr = clean_content_text(completed.stderr or "")
             raise RuntimeError(f"yt_dlp_search_failed: {stderr[:240] or 'unknown_error'}")
-
-        since_utc = since.astimezone(timezone.utc)
-        items: list[FeedbackItem] = []
-        for raw_line in (completed.stdout or "").splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            item = self._parse_item(
-                data=data,
-                query=query,
-                include_keywords=include_keywords,
-                since=since_utc,
-            )
-            if item:
-                items.append(item)
-        return items
+        return completed
 
     def _parse_item(
         self,

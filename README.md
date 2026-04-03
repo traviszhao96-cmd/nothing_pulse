@@ -63,7 +63,7 @@ cp .env.example .env
 - `sources.*.enabled`
 - `sources.google_news/custom_rss.fetch_article_body`（抓正文给 AI 分析）
 - `sources.youtube.*`（YouTube Data API，需 `YOUTUBE_API_KEY`）
-- `sources.youtube_yt_dlp.*`（YouTube 无 API 抓取，推荐海外优先时开启）
+- `sources.youtube_yt_dlp.*`（YouTube 无 API 抓取；支持 `queries` 多关键词列表）
 - `sources.x_twscrape.*` / `sources.x_snscrape.*`（X 抓取，两种方式可二选一）
 - `sources.instagram_instaloader.*`（Instagram 抓取）
 - `sources.reddit_snscrape.*`（Reddit 无 OAuth 抓取）

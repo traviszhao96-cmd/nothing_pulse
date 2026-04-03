@@ -91,8 +91,11 @@ product_keywords:
   - nothing os
   - frogger
   - pacman
+  - phone 3
   - phone 3a
   - phone 3a pro
+  - phone 4a
+  - phone 4a pro
   - phone 2a
 
 dedupe:
@@ -101,7 +104,7 @@ dedupe:
 
 schedule:
   timezone: Asia/Shanghai
-  hour: 9
+  hour: 0
   minute: 0
 
 # Step 2: collectors
@@ -156,13 +159,16 @@ sources:
   youtube_yt_dlp:
     enabled: true
     executable: yt-dlp
-    query: "Nothing Phone camera review"
-    limit: 30
+    queries:
+      - "Nothing Phone 3 camera review"
+      - "Nothing Phone 3 camera test"
+      - "Nothing Phone 4a camera review"
+      - "Nothing Phone 4a camera test"
+      - "Nothing Phone 4a Pro camera review"
+      - "Nothing Phone 4a Pro camera test"
+    limit: 25
     timeout_seconds: 90
-    include_keywords:
-      - nothing
-      - camera
-      - review
+    include_keywords: [nothing, camera, photo, video, review, "phone 3", "phone 4a", "phone 4a pro"]
 
   x_twscrape:
     enabled: false
@@ -274,7 +280,7 @@ video_processing:
   timeout_seconds: 1800
   max_items_per_run: 8
   nightly_enabled: false
-  nightly_hour: 2
+  nightly_hour: 0
   nightly_minute: 30
   nightly_timezone: Asia/Shanghai
 
