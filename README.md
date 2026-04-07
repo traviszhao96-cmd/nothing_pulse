@@ -70,6 +70,7 @@ cp .env.example .env
 - `ingest-video`（无 API 手动导入视频链接并进入分析流程）
 - `local_ai.*`（启用 DeepSeek/OpenAI 兼容 API；建议使用 `./prompts/deepseek_tagging_v2.md`）
 - `video_processing.*`（对视频候选执行 videosummary 手动/夜间自动处理）
+- `video_processing.comment_*`（YouTube 评论：`newest + top` 双通道抓取、规则优先级筛选、仅高价值评论走 AI）
 - `lark.enabled` 与飞书密钥
 - `lark.auto_create_fields`（建议开启；空表首次同步会自动补齐缺失列）
 

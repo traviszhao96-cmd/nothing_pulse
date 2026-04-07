@@ -393,6 +393,7 @@ def build_video_detail_payload(repository: FeedbackRepository, row_id: int) -> d
         return {"error": "not_found", "id": int(row_id)}
     extra = load_json(row["extra_json"], {})
     video_analysis = extra.get("video_analysis", {}) if isinstance(extra, dict) else {}
+    comment_mining = extra.get("youtube_comment_mining", {}) if isinstance(extra, dict) else {}
     return {
         "id": int(row["id"]),
         "title": row["title"],
@@ -414,6 +415,7 @@ def build_video_detail_payload(repository: FeedbackRepository, row_id: int) -> d
         "video_candidate": int(row["video_candidate"] or 0) == 1,
         "is_video": is_video_url(row["url"]),
         "video_analysis": video_analysis if isinstance(video_analysis, dict) else {},
+        "youtube_comment_mining": comment_mining if isinstance(comment_mining, dict) else {},
     }
 
 

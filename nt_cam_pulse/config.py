@@ -54,6 +54,15 @@ class VideoProcessingConfig:
     nightly_hour: int = 2
     nightly_minute: int = 30
     nightly_timezone: str = "Asia/Shanghai"
+    comment_mining_enabled: bool = True
+    comment_newest_limit: int = 500
+    comment_top_limit: int = 120
+    comment_timeout_seconds: int = 180
+    comment_ai_batch_size: int = 20
+    comment_ai_max_candidates: int = 180
+    comment_ai_max_p3: int = 100
+    comment_ai_max_p2_negative: int = 50
+    comment_max_points: int = 40
 
 
 @dataclass(slots=True)
@@ -139,6 +148,15 @@ def load_config(path: str | Path) -> AppConfig:
             nightly_minute=max(0, min(59, int(video_processing_raw.get("nightly_minute", 30)))),
             nightly_timezone=str(video_processing_raw.get("nightly_timezone", "Asia/Shanghai")).strip()
             or "Asia/Shanghai",
+            comment_mining_enabled=bool(video_processing_raw.get("comment_mining_enabled", True)),
+            comment_newest_limit=max(20, min(3000, int(video_processing_raw.get("comment_newest_limit", 500)))),
+            comment_top_limit=max(20, min(1000, int(video_processing_raw.get("comment_top_limit", 120)))),
+            comment_timeout_seconds=max(20, int(video_processing_raw.get("comment_timeout_seconds", 180))),
+            comment_ai_batch_size=max(5, min(40, int(video_processing_raw.get("comment_ai_batch_size", 20)))),
+            comment_ai_max_candidates=max(20, min(500, int(video_processing_raw.get("comment_ai_max_candidates", 180)))),
+            comment_ai_max_p3=max(0, min(300, int(video_processing_raw.get("comment_ai_max_p3", 100)))),
+            comment_ai_max_p2_negative=max(0, min(300, int(video_processing_raw.get("comment_ai_max_p2_negative", 50)))),
+            comment_max_points=max(5, min(80, int(video_processing_raw.get("comment_max_points", 40)))),
         ),
     )
 

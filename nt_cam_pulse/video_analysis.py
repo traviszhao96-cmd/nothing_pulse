@@ -14,8 +14,9 @@ from .config import AppConfig
 from .models import FeedbackItem
 from .source_profile import SourceProfiler
 from .storage import FeedbackRepository
-from .utils import clean_content_text, is_video_url, load_json, parse_datetime, since_hours
+from .utils import clean_content_text, is_video_url, load_json, parse_datetime, since_hours, truncate
 from .video_identity import extract_video_signatures, parse_video_signatures
+from .youtube_comments import YouTubeCommentMiner
 
 
 @dataclass(slots=True)
@@ -31,6 +32,7 @@ class VideoAnalysisService:
         self.repository = repository
         self.classifier = CameraClassifier(config.camera_categories)
         self.source_profiler = SourceProfiler()
+        self.comment_miner = YouTubeCommentMiner(config)
 
     def is_enabled(self) -> bool:
         cfg = self.config.video_processing
@@ -68,19 +70,39 @@ class VideoAnalysisService:
             rows = self.repository.fetch_by_report_date(target_date, camera_only=None)
 
         force_ids = {int(row_id)} if row_id else set()
-        candidates, skipped_duplicates = self._pick_candidates(
+        processed_signature_map = self._load_processed_video_signature_map(exclude_ids=force_ids) if only_unprocessed else {}
+        candidates, duplicate_rows, skipped_duplicates = self._pick_candidates(
             rows,
             limit=limit,
             only_unprocessed=only_unprocessed,
             force_ids=force_ids,
+            processed_signature_map=processed_signature_map,
         )
         succeeded = 0
         failed = 0
+        duplicate_resolved = 0
         item_results: list[dict[str, Any]] = []
+
+        for row, source_row in duplicate_rows:
+            self._apply_duplicate_analysis(row=row, source_row=source_row)
+            duplicate_resolved += 1
+            item_results.append(
+                {
+                    "id": int(row["id"]),
+                    "title": row["title"],
+                    "url": row["url"],
+                    "ok": True,
+                    "error": "",
+                    "output_file": load_json(source_row["extra_json"], {}).get("video_analysis", {}).get("output_file", ""),
+                    "duplicate_of": int(source_row["id"]),
+                }
+            )
 
         for row in candidates:
             item = self._row_to_item(row)
             self._ensure_video_signatures(item)
+            comment_result = self._analyze_youtube_comments(item)
+            comment_points = comment_result.get("points", [])
             result = self._process_single(item.url)
             extra = dict(item.extra)
             extra["video_analysis"] = {
@@ -89,6 +111,10 @@ class VideoAnalysisService:
                 "output_file": result.output_file,
                 "error": result.error,
             }
+            if comment_result:
+                extra["youtube_comment_mining"] = comment_result.get("meta", {})
+                if comment_result.get("error"):
+                    extra["youtube_comment_mining"]["error"] = comment_result.get("error")
 
             if result.ok:
                 try:
@@ -104,8 +130,21 @@ class VideoAnalysisService:
                 failed += 1
 
             item.extra = extra
+            if comment_points:
+                merged_points = self._merge_structured_points(
+                    existing=item.extra.get("ai_structured_points"),
+                    incoming=comment_points,
+                )
+                if merged_points:
+                    item.extra["ai_structured_points"] = merged_points
+                    self._sync_item_from_structured_points(item, merged_points)
             self.classifier.classify(item)
             self.source_profiler.classify(item)
+            if comment_points:
+                merged_points = item.extra.get("ai_structured_points")
+                if isinstance(merged_points, list) and merged_points:
+                    # Keep comment-mining priorities after classifier rule refresh.
+                    self._sync_item_from_structured_points(item, merged_points)
             self.repository.update_analysis_fields(int(row["id"]), item)
             item_results.append(
                 {
@@ -120,12 +159,137 @@ class VideoAnalysisService:
 
         return {
             "ok": True,
-            "processed": len(candidates),
-            "succeeded": succeeded,
+            "processed": len(candidates) + duplicate_resolved,
+            "succeeded": succeeded + duplicate_resolved,
             "failed": failed,
+            "duplicate_resolved": duplicate_resolved,
             "skipped_duplicates": skipped_duplicates,
             "items": item_results,
         }
+
+    def _analyze_youtube_comments(self, item: FeedbackItem) -> dict[str, Any]:
+        if not self.comment_miner.is_enabled_for_url(item.url):
+            return {}
+        context = "\n".join(
+            [
+                item.title or "",
+                item.summary or "",
+                truncate(clean_content_text(item.content or ""), 600),
+            ]
+        )
+        return self.comment_miner.analyze_video(item.url, context_text=context)
+
+    def _merge_structured_points(self, existing: Any, incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def append_point(point: dict[str, Any]) -> None:
+            text = clean_content_text(str(point.get("text", "")))
+            original = clean_content_text(str(point.get("original_text", "")))
+            if not text:
+                return
+            key = f"{text.lower()}||{original.lower()}"
+            if key in seen:
+                return
+            seen.add(key)
+            merged.append(point)
+
+        if isinstance(existing, list):
+            for point in existing:
+                if isinstance(point, dict):
+                    append_point(point)
+        for point in incoming:
+            if isinstance(point, dict):
+                append_point(point)
+
+        merged.sort(key=self._structured_point_rank, reverse=True)
+        return merged[: self.config.video_processing.comment_max_points]
+
+    @staticmethod
+    def _structured_point_rank(point: dict[str, Any]) -> tuple[int, int, int]:
+        secondary_tags = [clean_content_text(str(tag)) for tag in (point.get("secondary_tags") or [])]
+        priority = 2
+        for tag in secondary_tags:
+            matched = re.search(r"priority\s*:\s*p?([1-4])", tag, re.I)
+            if matched:
+                priority = int(matched.group(1))
+                break
+        severity = clean_content_text(str(point.get("severity", ""))).lower()
+        severity_rank = {"high": 3, "medium": 2, "low": 1}.get(severity, 1)
+        sentiment = clean_content_text(str(point.get("sentiment", ""))).lower()
+        sentiment_rank = {"negative": 3, "neutral": 2, "positive": 1}.get(sentiment, 2)
+        return priority, severity_rank, sentiment_rank
+
+    def _sync_item_from_structured_points(self, item: FeedbackItem, points: list[dict[str, Any]]) -> None:
+        if not points:
+            return
+        positives: list[str] = []
+        neutrals: list[str] = []
+        negatives: list[str] = []
+        secondary_tags: list[str] = []
+        product_tags: list[str] = list(item.product_tags)
+        primary_counts: dict[str, int] = {}
+        sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
+        severity_best = "low"
+
+        for point in points:
+            text = truncate(clean_content_text(str(point.get("text", ""))), 120)
+            if not text:
+                continue
+            sentiment = clean_content_text(str(point.get("sentiment", ""))).lower()
+            if sentiment not in {"positive", "neutral", "negative"}:
+                sentiment = "neutral"
+            sentiment_counts[sentiment] += 1
+            if sentiment == "positive":
+                positives.append(text)
+            elif sentiment == "negative":
+                negatives.append(text)
+            else:
+                neutrals.append(text)
+
+            primary_tag = clean_content_text(str(point.get("primary_tag", "")))
+            if primary_tag:
+                primary_counts[primary_tag] = primary_counts.get(primary_tag, 0) + 1
+
+            for tag in point.get("secondary_tags", []) or []:
+                clean = clean_content_text(str(tag))
+                if clean and clean not in secondary_tags:
+                    secondary_tags.append(clean)
+
+            for tag in point.get("product_tags", []) or []:
+                clean = clean_content_text(str(tag))
+                if clean and clean not in product_tags:
+                    product_tags.append(clean)
+
+            severity = clean_content_text(str(point.get("severity", ""))).lower()
+            if severity == "high":
+                severity_best = "high"
+            elif severity == "medium" and severity_best != "high":
+                severity_best = "medium"
+
+        item.ai_positive_points = positives[:6]
+        item.ai_neutral_points = neutrals[:6]
+        item.ai_negative_points = negatives[:6]
+
+        if secondary_tags:
+            item.domain_subtags = secondary_tags[:8]
+        if product_tags:
+            item.product_tags = product_tags[:6]
+
+        if primary_counts:
+            best_primary = max(primary_counts.items(), key=lambda pair: pair[1])[0]
+            if best_primary:
+                item.domain_tag = best_primary
+                item.camera_category = best_primary
+
+        if sentiment_counts["negative"] >= max(sentiment_counts["positive"], sentiment_counts["neutral"]) and sentiment_counts["negative"] > 0:
+            item.sentiment = "negative"
+        elif sentiment_counts["positive"] > max(sentiment_counts["negative"], sentiment_counts["neutral"]):
+            item.sentiment = "positive"
+        else:
+            item.sentiment = "neutral"
+
+        item.severity = severity_best
 
     def _pick_candidates(
         self,
@@ -133,12 +297,15 @@ class VideoAnalysisService:
         limit: int | None,
         only_unprocessed: bool,
         force_ids: set[int] | None = None,
-    ) -> tuple[list[Any], int]:
+        processed_signature_map: dict[str, Any] | None = None,
+    ) -> tuple[list[Any], list[tuple[Any, Any]], int]:
         force_ids = force_ids or set()
+        processed_signature_map = processed_signature_map or {}
         max_items = max(1, int(limit or self.config.video_processing.max_items_per_run))
         candidates: list[Any] = []
+        duplicate_rows: list[tuple[Any, Any]] = []
         skipped_duplicates = 0
-        processed_signatures = self._load_processed_video_signatures(exclude_ids=force_ids) if only_unprocessed else set()
+        processed_signatures = set(processed_signature_map)
         selected_signatures: set[str] = set()
         ordered_rows = sorted(rows, key=lambda item: str(item["published_at"] or ""), reverse=True)
         for row in ordered_rows:
@@ -161,8 +328,13 @@ class VideoAnalysisService:
 
             signatures = self._row_signatures(row, extra=extra)
             if row_id not in force_ids and signatures:
-                if signatures & processed_signatures:
+                matching_processed = signatures & processed_signatures
+                if matching_processed:
                     skipped_duplicates += 1
+                    source_signature = next(iter(matching_processed))
+                    source_row = processed_signature_map.get(source_signature)
+                    if source_row is not None:
+                        duplicate_rows.append((row, source_row))
                     continue
                 if signatures & selected_signatures:
                     skipped_duplicates += 1
@@ -172,7 +344,7 @@ class VideoAnalysisService:
             selected_signatures.update(signatures)
             if len(candidates) >= max_items:
                 break
-        return candidates, skipped_duplicates
+        return candidates, duplicate_rows, skipped_duplicates
 
     def _process_single(self, url: str) -> VideoProcessResult:
         cfg = self.config.video_processing
@@ -282,9 +454,9 @@ class VideoAnalysisService:
             extra=load_json(row["extra_json"], {}),
         )
 
-    def _load_processed_video_signatures(self, exclude_ids: set[int]) -> set[str]:
+    def _load_processed_video_signature_map(self, exclude_ids: set[int]) -> dict[str, Any]:
         rows = self.repository.fetch_rows_for_backfill(target_date=None, limit=6000)
-        pool: set[str] = set()
+        pool: dict[str, Any] = {}
         for row in rows:
             row_id = int(row["id"])
             if row_id in exclude_ids:
@@ -294,8 +466,60 @@ class VideoAnalysisService:
             status = str(video_analysis.get("status", "")).strip().lower() if isinstance(video_analysis, dict) else ""
             if status != "ok":
                 continue
-            pool.update(self._row_signatures(row, extra=extra))
+            for signature in self._row_signatures(row, extra=extra):
+                pool.setdefault(signature, row)
         return pool
+
+    def _apply_duplicate_analysis(self, row: Any, source_row: Any) -> None:
+        item = self._row_to_item(row)
+        source_item = self._row_to_item(source_row)
+        self._ensure_video_signatures(item)
+        self._ensure_video_signatures(source_item)
+
+        item.author = source_item.author or item.author
+        item.content = source_item.content
+        item.summary = source_item.summary
+        item.camera_category = source_item.camera_category
+        item.sentiment = source_item.sentiment
+        item.severity = source_item.severity
+        item.source_actor_type = source_item.source_actor_type
+        item.source_actor_reason = source_item.source_actor_reason
+        item.domain_tag = source_item.domain_tag
+        item.domain_subtags = list(source_item.domain_subtags)
+        item.sentiment_reason = source_item.sentiment_reason
+        item.ai_positive_points = list(source_item.ai_positive_points)
+        item.ai_neutral_points = list(source_item.ai_neutral_points)
+        item.ai_negative_points = list(source_item.ai_negative_points)
+        item.product_tags = list(source_item.product_tags)
+        item.language = source_item.language or item.language
+        item.video_candidate = False
+
+        source_extra = dict(source_item.extra)
+        target_extra = dict(item.extra)
+        source_video_analysis = source_extra.get("video_analysis", {}) if isinstance(source_extra.get("video_analysis"), dict) else {}
+        target_extra["video_analysis"] = {
+            "processed_at": datetime.now(tz=timezone.utc).isoformat(),
+            "status": "duplicate",
+            "output_file": str(source_video_analysis.get("output_file", "")).strip(),
+            "error": "",
+            "duplicate_of_row_id": int(source_row["id"]),
+        }
+        if "ai_structured_points" in source_extra:
+            target_extra["ai_structured_points"] = source_extra["ai_structured_points"]
+        if "youtube_comment_mining" in source_extra:
+            target_extra["youtube_comment_mining"] = source_extra["youtube_comment_mining"]
+        if source_item.extra.get("video_signatures"):
+            target_extra["video_signatures"] = source_item.extra["video_signatures"]
+        item.extra = target_extra
+
+        structured_points = item.extra.get("ai_structured_points")
+        if isinstance(structured_points, list) and structured_points:
+            self._sync_item_from_structured_points(item, structured_points)
+        self.classifier.classify(item)
+        self.source_profiler.classify(item)
+        if isinstance(structured_points, list) and structured_points:
+            self._sync_item_from_structured_points(item, structured_points)
+        self.repository.update_analysis_fields(int(row["id"]), item)
 
     def _row_signatures(self, row: Any, extra: dict | None = None) -> set[str]:
         parsed_extra = extra if isinstance(extra, dict) else load_json(row["extra_json"], {})

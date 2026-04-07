@@ -283,6 +283,17 @@ video_processing:
   nightly_hour: 0
   nightly_minute: 30
   nightly_timezone: Asia/Shanghai
+  # YouTube 评论观点提炼（最新评论主导 + 热门补充）
+  comment_mining_enabled: true
+  comment_newest_limit: 500
+  comment_top_limit: 120
+  comment_timeout_seconds: 180
+  # 仅对高价值评论调用模型，减少 token 消耗
+  comment_ai_batch_size: 20
+  comment_ai_max_candidates: 180
+  comment_ai_max_p3: 100
+  comment_ai_max_p2_negative: 50
+  comment_max_points: 40
 
 # Step 4: Lark bitable sync
 lark:
