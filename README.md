@@ -1,39 +1,61 @@
-# Nothing Camera Pulse (camera-only)
+# Nothing Camera Pulse
 
-Nothing Camera Pulse 是一个面向 `camera-only` 反馈的日更流水线，按我们确认的 4 步执行：
+Nothing Camera Pulse 是一套面向 `Nothing / CMF` 以及竞品机型的社媒与媒体反馈分析流水线，当前已经不只是 `camera-only` 抓取，而是覆盖了：
 
-1. 相机主题定义（关键词 + 分类字典）
-2. 采集与强过滤（仅保留 camera 相关 + 去重）
-3. 自动分类（问题类型 + 情绪 + 严重级别）
-4. 飞书多维表格同步 + 每日报告输出
+1. 多源内容采集与去重
+2. camera 相关过滤与 AI 结构化标签
+3. 视频转写 / 评论区挖掘 / 竞品视频归类
+4. Lark 多维表格同步、Dashboard 辅助字段、日报与 HTML 周报邮件
+
+适合放在 GitHub 仓库简介的一句话：
+
+> Multi-source Nothing / CMF media feedback pipeline with camera tagging, video analysis, Lark sync, and HTML weekly reporting.
+
+## 当前能力范围
+
+- 面向 Nothing / CMF 的媒体评测、社媒讨论、评论区反馈和竞品视频检索
+- 支持 `camera-only` 强过滤，也支持更宽松的 review 模式保留非相机内容
+- 支持 YouTube / Bilibili / X / Google News / RSS / Instagram / Reddit / Nothing Community
+- 支持视频分析结果回写数据库、Lark、多端前端页面和 HTML 邮件
+- 支持从历史数据回填 AI 标签、重刷 Lark、增量生成周报
 
 ## 功能概览
 
-- 多源采集：Nothing Community、Google News、自定义 RSS、YouTube（Data API / yt-dlp）、X（twscrape / snscrape）、Instagram（instaloader）、Reddit（OAuth / snscrape）
-- camera-only 过滤：命中相机关键词才入库
-- 去重：链接去重 + 文本近似去重（Jaccard）
-- 自动分类：`画质/对焦/曝光/夜景/人像/视频/防抖/性能发热/功能建议`
+- 多源采集：Nothing Community、Google News、自定义 RSS、YouTube（Data API / yt-dlp）、Bilibili、X（官方 API / twscrape / snscrape）、Instagram、Reddit
+- camera-only 过滤：命中相机关键词才入库；也支持 `review` 模式先保留再打标
+- 去重：链接去重 + 文本近似去重（Jaccard）+ 视频签名去重
+- 自动分类：`画质 / 对焦 / 曝光 / 夜景 / 人像 / 视频 / 防抖 / 性能发热 / 功能建议`
 - 来源身份识别：`真实购买用户 / 官方KOL媒体 / 核心KOC自媒体 / 待确认`
-- 本地 AI 结构化总结：好评/中性/差评要点、情绪依据、领域与二级标签
-- 本地 AI 状态看板：显式展示可用性、最近错误与视频处理进度
-- 视频二级详情页：支持原视频跳转、详情页入口与手动单条分析
-- 视频去重：基于平台视频 ID + URL + 标题签名，避免重复转写同一内容
-- 每日报告：输出 Markdown（新增量、Top 类别、高风险案例、趋势）
-- HTML 周报邮件预览：复用区间汇总数据生成内部同步邮件
-- 飞书同步：可选写入 Lark Bitable
-- 飞书观点级同步：一条内容可拆成多条观点记录（每条含独立情绪、时间点、观点ID）
-- 飞书观点级标签：严重级别/情绪/一级标签/二级标签按“单条观点”计算，而非整条内容复用
+- AI 结构化总结：好评 / 中性 / 差评要点、情绪依据、领域标签、二级标签、评论区高价值信息
+- 视频处理：调用 `videosummary` 做转写、观点抽取、评论区优先级筛选、重复视频复用
+- 竞品视频检索：自动生成 query，支持 `compare-to`、竞品品牌/机型标记、视频类型归类
+- 报告输出：Markdown 日报 + HTML 周报预览 + SMTP 群发邮件
+- 飞书同步：支持观点粒度拆分、Lark Dashboard 辅助字段、历史数据回刷
 - 前后端解耦：Backend API（数据访问/聚合）+ Frontend（可视化展示）
+
+## 常用场景
+
+- 日常增量抓取 Nothing / CMF 相机反馈
+- 周度汇总媒体评测和评论区洞察并发邮件
+- 拉竞品视频做相机对比洞察
+- 把 AI 结构化结果同步到 Lark 做问题看板
+- 对历史视频 backlog 批量补跑分析
 
 ## 目录
 
 - `nt_cam_pulse/cli.py`：命令行入口
 - `nt_cam_pulse/pipeline.py`：采集、过滤、分类、入库、报告编排
+- `nt_cam_pulse/competitor_video.py`：竞品视频检索、归类、入库
 - `nt_cam_pulse/filtering.py`：camera 过滤与去重
 - `nt_cam_pulse/classifier.py`：分类与情绪/严重级别
+- `nt_cam_pulse/video_analysis.py`：videosummary 视频分析编排
+- `nt_cam_pulse/youtube_comments.py`：YouTube 评论区抓取与 AI 观点筛选
+- `nt_cam_pulse/email_summary.py`：SMTP 每日汇报邮件
+- `nt_cam_pulse/weekly_email.py`：HTML 周报构建与发送
 - `nt_cam_pulse/backend/`：后端 API 路由与服务
 - `nt_cam_pulse/frontend/`：前端静态服务
 - `nt_cam_pulse/lark.py`：飞书多维表格同步
+- `nt_cam_pulse/process_log.py`：过程日志与处理 run 记录
 - `nt_cam_pulse/report.py`：日报生成
 - `nt_cam_pulse/web/`：前端静态页面资源
 - `config.example.yaml`：完整配置模板
@@ -141,6 +163,22 @@ EOF
 
 ## 运行
 
+### 最常用命令
+
+```bash
+# 1) 跑一次全链路抓取
+python -m nt_cam_pulse.cli --config config.yaml run
+
+# 2) 处理待分析视频
+python -m nt_cam_pulse.cli --config config.yaml video-process --limit 20
+
+# 3) 同步到 Lark
+python -m nt_cam_pulse.cli --config config.yaml sync-lark --limit 200
+
+# 4) 生成或发送周报
+python -m nt_cam_pulse.cli --config config.yaml weekly-email --scope camera --send
+```
+
 ### 一次性执行全链路
 
 ```bash
@@ -171,6 +209,38 @@ python -m nt_cam_pulse.cli --config config.yaml competitor-video \
 - 会自动生成 `camera review / camera test / vs Nothing` 类查询词
 - 检索结果会复用现有数据库、AI enrich、视频分析和 Lark 同步链路
 - 每条结果会额外写入竞品结构化信息：`竞品品牌`、`竞品机型`、`对比对象`、`视频类型`、`相机焦点标签`
+
+### 周报邮件工作流
+
+先本地生成 HTML 预览：
+
+```bash
+python -m nt_cam_pulse.cli --config config.yaml weekly-email \
+  --start-date 2026-03-19 \
+  --end-date 2026-04-16 \
+  --scope camera \
+  --top-limit 12 \
+  --output ./reports/nothing-camera-social-summary-2026-03-19-to-2026-04-16.html
+```
+
+确认预览没问题后直接发出：
+
+```bash
+python -m nt_cam_pulse.cli --config config.yaml weekly-email \
+  --start-date 2026-03-19 \
+  --end-date 2026-04-16 \
+  --scope camera \
+  --top-limit 12 \
+  --send
+```
+
+当前模板已支持：
+
+- 热门内容精选
+- 核心好评 / 核心差评聚类
+- 评论区中文摘要
+- 近 7 天反馈量与总时长趋势
+- 复用 `email_summary` 的 SMTP 群发配置
 
 ### 只生成日报
 
