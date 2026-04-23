@@ -6,10 +6,13 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import time
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import requests
 
+from .ai_enricher import normalize_secondary_tags_for_primary
 from .classifier import PRODUCT_KEYWORDS
 from .source_profile import SOURCE_LABELS
 from .utils import (
@@ -19,6 +22,7 @@ from .utils import (
     clean_content_text,
     detect_language,
     format_seconds_label,
+    is_video_url,
     load_json,
     parse_point_timestamp,
     parse_timestamp_to_seconds,
@@ -128,6 +132,9 @@ class PointRecord:
     product_tags: list[str]
     timestamp_seconds: int | None
     timestamp_label: str
+    source_label: str
+    comment_meta: str
+    comment_author: str
 
 
 DEFAULT_FIELD_MAPPING = {
@@ -142,6 +149,8 @@ DEFAULT_FIELD_MAPPING = {
     "point_language": "原文语言",
     "point_primary_tag": "一级标签",
     "point_secondary_tags": "二级标签",
+    "point_source_label": "来源标签",
+    "comment_meta": "评论属性",
     "point_timestamp": "观点时间点",
     "point_timestamp_seconds": "观点时间秒",
     "title": "标题",
@@ -159,6 +168,11 @@ DEFAULT_FIELD_MAPPING = {
     "source_actor_reason": "来源判断依据",
     "domain_subtags": "二级标签",
     "product_tags": "产品标签",
+    "primary_product": "主产品",
+    "platform_group": "平台大类",
+    "published_date": "发布时间日期",
+    "is_negative": "是否负向",
+    "is_high_severity": "是否高严重",
     "camera_keyword_hits": "命中关键词",
     "video_candidate": "待补视频转写",
     "summary": "摘要",
@@ -166,6 +180,72 @@ DEFAULT_FIELD_MAPPING = {
     "report_date": "入库日期",
     "status": "跟进状态",
 }
+
+LARK_FIELD_TYPE_LABELS = {
+    1: "多行文本",
+    2: "数字",
+    3: "单选",
+    4: "多选",
+    5: "日期",
+    7: "复选框",
+    15: "超链接",
+}
+
+DASHBOARD_FIELD_TYPE_RECOMMENDATIONS = {
+    "point_sentiment": 3,
+    "point_severity": 3,
+    "point_primary_tag": 3,
+    "point_secondary_tags": 4,
+    "point_source_label": 3,
+    "source": 3,
+    "source_actor_type": 3,
+    "product_tags": 4,
+    "primary_product": 3,
+    "platform_group": 3,
+    "is_negative": 7,
+    "is_high_severity": 7,
+    "point_timestamp_seconds": 2,
+    "camera_related": 7,
+    "video_candidate": 7,
+}
+
+DASHBOARD_VIEW_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "全量观点",
+        "filters": [],
+    },
+    {
+        "name": "负向问题",
+        "filters": [
+            {"field_key": "point_sentiment", "operator": "is", "value": "负向"},
+        ],
+    },
+    {
+        "name": "高严重负向",
+        "filters": [
+            {"field_key": "point_sentiment", "operator": "is", "value": "负向"},
+            {"field_key": "point_severity", "operator": "is", "value": "高"},
+        ],
+    },
+    {
+        "name": "评论区观点",
+        "filters": [
+            {"field_key": "point_source_label", "operator": "is", "value": "评论区"},
+        ],
+    },
+    {
+        "name": "原视频观点",
+        "filters": [
+            {"field_key": "point_source_label", "operator": "is", "value": "原视频"},
+        ],
+    },
+    {
+        "name": "原帖子观点",
+        "filters": [
+            {"field_key": "point_source_label", "operator": "is", "value": "原帖子"},
+        ],
+    },
+)
 
 
 class LarkBitableClient:
@@ -193,9 +273,13 @@ class LarkBitableClient:
         self._tenant_access_token: str | None = None
         self._table_field_names: set[str] | None = None
         self._table_primary_field_name: str | None = None
+        self._table_field_ids: dict[str, str] = {}
         self._table_field_types: dict[str, int] = {}
+        self._table_field_option_ids: dict[str, dict[str, str]] = {}
         self._transcript_cache: dict[str, list[tuple[int, str]]] = {}
         self._video_timestamp_hint_cache: dict[str, dict[str, list[tuple[int, str]]]] = {}
+        self._request_timeout_seconds = 30
+        self._max_request_attempts = 3
 
     def is_available(self) -> bool:
         required = [
@@ -205,6 +289,66 @@ class LarkBitableClient:
             self.config.bitable_table_id,
         ]
         return self.config.enabled and all(required)
+
+    def prepare_dashboard_views(self) -> dict[str, Any]:
+        if not self.is_available():
+            return {
+                "created": [],
+                "updated": [],
+                "skipped": [],
+                "warnings": ["Lark 配置未启用或缺少必要凭证"],
+            }
+
+        self._get_table_field_names()
+        existing_views = self._list_views()
+        created: list[str] = []
+        updated: list[str] = []
+        skipped: list[str] = []
+        warnings: list[str] = []
+
+        for spec in DASHBOARD_VIEW_SPECS:
+            view_name = clean_content_text(spec.get("name", ""))
+            if not view_name:
+                continue
+            property_payload, missing_fields = self._build_dashboard_view_property(spec.get("filters") or [])
+            if missing_fields:
+                warnings.append(f"{view_name} 缺少字段: {', '.join(missing_fields)}")
+                skipped.append(view_name)
+                continue
+
+            view_id = existing_views.get(view_name)
+            if not view_id:
+                view_id = self._create_view(view_name)
+                created.append(view_name)
+            if property_payload:
+                self._update_view(view_id=view_id, view_name=view_name, property_payload=property_payload)
+                updated.append(view_name)
+            elif view_name not in created:
+                skipped.append(view_name)
+
+        return {
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "warnings": warnings,
+        }
+
+    def inspect_dashboard_field_types(self) -> list[dict[str, str]]:
+        self._get_table_field_names()
+        rows: list[dict[str, str]] = []
+        for field_key, expected_type in DASHBOARD_FIELD_TYPE_RECOMMENDATIONS.items():
+            field_name = self._mapped_field_name(field_key)
+            current_type = int(self._table_field_types.get(field_name, 0) or 0)
+            rows.append(
+                {
+                    "field_key": field_key,
+                    "field_name": field_name,
+                    "current_type": self._field_type_label(current_type),
+                    "expected_type": self._field_type_label(expected_type),
+                    "ok": "1" if current_type == expected_type else "0",
+                }
+            )
+        return rows
 
     def sync_rows(
         self,
@@ -216,6 +360,7 @@ class LarkBitableClient:
         upsert_point_link: "UpsertPointLinkFn | None" = None,
         delete_point_link: "DeletePointLinkFn | None" = None,
         mark_point_failed: "MarkPointSyncFailedFn | None" = None,
+        on_row_result: "SyncRowResultFn | None" = None,
     ) -> int:
         if not self.is_available():
             return 0
@@ -223,6 +368,7 @@ class LarkBitableClient:
         synced_rows = 0
         for row in rows:
             row_id = int(row["id"])
+            points: list[PointRecord] = []
             try:
                 points = self._extract_points(row)
                 existing_map = self._build_existing_point_record_map(row_id, list_point_links)
@@ -264,12 +410,34 @@ class LarkBitableClient:
 
                 mark_synced(row_id, first_record_id)
                 synced_rows += 1
+                if on_row_result:
+                    on_row_result(
+                        {
+                            "row_id": row_id,
+                            "title": str(row["title"] or ""),
+                            "url": str(row["url"] or ""),
+                            "status": "synced",
+                            "point_count": len(points),
+                            "record_id": first_record_id,
+                        }
+                    )
             except Exception as exc:  # noqa: BLE001
                 if mark_failed:
                     mark_failed(row_id, str(exc))
                 if mark_point_failed:
-                    for point in self._extract_points(row):
+                    for point in points or self._extract_points(row):
                         mark_point_failed(row_id, point.point_uid, str(exc))
+                if on_row_result:
+                    on_row_result(
+                        {
+                            "row_id": row_id,
+                            "title": str(row["title"] or ""),
+                            "url": str(row["url"] or ""),
+                            "status": "failed",
+                            "point_count": len(points),
+                            "error": str(exc),
+                        }
+                    )
         return synced_rows
 
     def _build_existing_point_record_map(self, row_id: int, list_point_links: "ListPointLinksFn | None") -> dict[str, str]:
@@ -350,6 +518,9 @@ class LarkBitableClient:
                         product_tags=point_products,
                         timestamp_seconds=ts_seconds,
                         timestamp_label=ts_label,
+                        source_label=self._infer_source_label(row=row, explicit_raw=""),
+                        comment_meta="",
+                        comment_author="",
                     )
                 )
                 point_index += 1
@@ -382,6 +553,9 @@ class LarkBitableClient:
                 product_tags=point_products,
                 timestamp_seconds=None,
                 timestamp_label="",
+                source_label=self._infer_source_label(row=row, explicit_raw=""),
+                comment_meta="",
+                comment_author="",
             )
         ]
 
@@ -432,7 +606,11 @@ class LarkBitableClient:
             seen_uids.add(point_uid)
 
             primary_tag = clean_content_text(point.get("primary_tag", "")) or clean_content_text(row["camera_category"] or "") or "Others"
-            secondary_tags = self._normalize_secondary_tags(point.get("secondary_tags"), primary_tag=primary_tag)
+            secondary_tags = self._normalize_secondary_tags(
+                point.get("secondary_tags"),
+                primary_tag=primary_tag,
+                point_text=point_text,
+            )
             severity = self._normalize_severity(point.get("severity", "")) or self._score_point_severity(point_text, sentiment)
             sentiment_label = {"positive": "正向", "neutral": "中性", "negative": "负向"}.get(sentiment, "中性")
             original_text_candidate = clean_content_text(point.get("original_text", ""))
@@ -449,7 +627,30 @@ class LarkBitableClient:
 
             point_products = [clean_content_text(value) for value in (point.get("product_tags") or []) if clean_content_text(value)]
             if not point_products:
+                point_products = self._extract_product_tags_from_secondary_markers(point.get("secondary_tags"))
+            if not point_products:
                 point_products = self._classify_point_products(point_text, row_products)
+
+            comment_meta = self._build_comment_meta(point=point)
+            severity_reason = clean_content_text(point.get("severity_reason", "")).lower()
+            has_comment_cue = bool(
+                comment_meta
+                or clean_content_text(point.get("comment_id", ""))
+                or clean_content_text(point.get("comment_author", ""))
+                or ("youtube_comment_mining" in severity_reason)
+            )
+            source_label = self._infer_source_label(
+                row=row,
+                explicit_raw=point.get("source_label", "") or point.get("source_origin", "") or point.get("origin", ""),
+            )
+            if has_comment_cue and source_label != "评论区":
+                source_label = "评论区"
+
+            comment_author = ""
+            if source_label == "评论区":
+                comment_author = clean_content_text(point.get("comment_author", "") or point.get("author", ""))
+            else:
+                comment_meta = ""
 
             items.append(
                 PointRecord(
@@ -469,6 +670,9 @@ class LarkBitableClient:
                     product_tags=self._unique_list(point_products)[:4],
                     timestamp_seconds=timestamp_seconds,
                     timestamp_label=timestamp_label,
+                    source_label=source_label,
+                    comment_meta=comment_meta,
+                    comment_author=comment_author,
                 )
             )
             point_index += 1
@@ -610,16 +814,170 @@ class LarkBitableClient:
             return "low"
         return ""
 
-    def _normalize_secondary_tags(self, raw: Any, primary_tag: str) -> list[str]:
+    def _normalize_secondary_tags(self, raw: Any, primary_tag: str, point_text: str = "") -> list[str]:
         values = raw if isinstance(raw, list) else []
         normalized = self._unique_list([clean_content_text(value) for value in values if clean_content_text(value)])
+        filtered: list[str] = []
         primary_key = clean_content_text(primary_tag).lower()
-        result: list[str] = []
         for tag in normalized:
-            if clean_content_text(tag).lower() == primary_key:
+            lowered = clean_content_text(tag).lower()
+            if lowered == primary_key or self._is_comment_meta_token(lowered):
                 continue
-            result.append(tag)
-        return result[:6]
+            filtered.append(tag)
+        return normalize_secondary_tags_for_primary(
+            primary_tag=primary_tag,
+            raw_tags=filtered,
+            text=point_text,
+            limit=6,
+        )
+
+    @staticmethod
+    def _is_comment_meta_token(value: str) -> bool:
+        lowered = clean_content_text(value).lower()
+        return (
+            lowered.startswith("priority:")
+            or lowered.startswith("purchasestage:")
+            or lowered.startswith("model:")
+        )
+
+    @staticmethod
+    def _extract_product_tags_from_secondary_markers(raw: Any) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        model_map = {
+            "phone_3": "phone3",
+            "phone 3": "phone3",
+            "phone3": "phone3",
+            "3": "phone3",
+            "phone_3a": "3a",
+            "phone 3a": "3a",
+            "phone3a": "3a",
+            "3a": "3a",
+            "phone_3a_pro": "3a pro",
+            "phone 3a pro": "3a pro",
+            "phone3apro": "3a pro",
+            "3a pro": "3a pro",
+            "phone_4a": "4a",
+            "phone 4a": "4a",
+            "phone4a": "4a",
+            "4a": "4a",
+            "phone_4a_pro": "4a pro",
+            "phone 4a pro": "4a pro",
+            "phone4apro": "4a pro",
+            "4a pro": "4a pro",
+        }
+        output: list[str] = []
+        for value in raw:
+            text = clean_content_text(value)
+            if not text:
+                continue
+            matched = re.search(r"model\s*:\s*(.+)$", text, re.I)
+            if not matched:
+                continue
+            raw_value = clean_content_text(matched.group(1)).lower().replace("-", " ").replace("_", " ")
+            raw_value = re.sub(r"\s+", " ", raw_value).strip()
+            mapped = model_map.get(raw_value)
+            if mapped and mapped not in output:
+                output.append(mapped)
+        return output[:4]
+
+    def _infer_source_label(self, row: Any, explicit_raw: Any) -> str:
+        explicit = clean_content_text(explicit_raw or "")
+        explicit_key = explicit.lower()
+        if explicit_key in {"评论区", "comment", "comments", "reply", "replies"}:
+            return "评论区"
+        if explicit_key in {"原视频", "video", "source_video"}:
+            return "原视频"
+        if explicit_key in {"原帖子", "post", "source_post"}:
+            return "原帖子"
+
+        source_section = clean_content_text(row["source_section"] or "").lower()
+        source = clean_content_text(row["source"] or "").lower()
+        if self._looks_like_comment_source(source_section) or self._looks_like_comment_source(source):
+            return "评论区"
+        if self._is_video_row(row):
+            return "原视频"
+        return "原帖子"
+
+    @staticmethod
+    def _looks_like_comment_source(text: str) -> bool:
+        value = clean_content_text(text).lower()
+        if not value:
+            return False
+        return any(token in value for token in ("comment", "comments", "reply", "评论", "评论区"))
+
+    @staticmethod
+    def _is_video_row(row: Any) -> bool:
+        source = clean_content_text(row["source"] or "").lower()
+        if source in {"youtube", "youtube_yt_dlp", "youtube_manual"}:
+            return True
+        if int(row["video_candidate"] or 0) == 1:
+            return True
+        url = clean_content_text(row["url"] or "")
+        if not url:
+            return False
+        try:
+            host = (urlparse(url).hostname or "").lower()
+        except Exception:  # noqa: BLE001
+            host = ""
+        if any(token in host for token in ("youtube.com", "youtu.be", "bilibili.com", "b23.tv", "vimeo.com", "tiktok.com", "douyin.com")):
+            return True
+        return False
+
+    def _build_comment_meta(self, point: dict[str, Any]) -> str:
+        priority = self._extract_priority_token(point.get("priority", ""))
+        purchase_stage = self._extract_purchase_stage(point.get("purchase_stage", ""))
+        raw_meta = clean_content_text(point.get("comment_meta", ""))
+        if not priority:
+            priority = self._extract_priority_token(raw_meta)
+        if not purchase_stage:
+            purchase_stage = self._extract_purchase_stage(raw_meta)
+        if (not priority) or (not purchase_stage):
+            raw_secondary = point.get("secondary_tags")
+            if isinstance(raw_secondary, list):
+                for tag in raw_secondary:
+                    if not priority:
+                        priority = self._extract_priority_token(tag)
+                    if not purchase_stage:
+                        purchase_stage = self._extract_purchase_stage(tag)
+                    if priority and purchase_stage:
+                        break
+
+        if not priority and not purchase_stage:
+            return ""
+        if not priority:
+            priority = "P2"
+        if not purchase_stage:
+            purchase_stage = "none"
+        return f"Priority:{priority},PurchaseStage:{purchase_stage}"
+
+    @staticmethod
+    def _extract_priority_token(raw: Any) -> str:
+        text = clean_content_text(raw or "")
+        if not text:
+            return ""
+        matched = re.search(r"(?:priority\s*:\s*)?p?\s*([1-4])", text, re.I)
+        if not matched:
+            return ""
+        return f"P{matched.group(1)}"
+
+    @staticmethod
+    def _extract_purchase_stage(raw: Any) -> str:
+        text = clean_content_text(raw or "").lower()
+        if not text:
+            return ""
+        if any(token in text for token in ("owned", "已购", "买了", "在用", "使用中")):
+            return "owned"
+        if any(token in text for token in ("considering", "想买", "考虑", "观望", "purchase_intent")):
+            return "considering"
+        if "none" in text or "无意向" in text:
+            return "none"
+        matched = re.search(r"purchasestage\s*:\s*([a-z_]+)", text, re.I)
+        if matched:
+            value = clean_content_text(matched.group(1)).lower()
+            if value in {"owned", "considering", "none"}:
+                return value
+        return ""
 
     def _sanitize_original_text(self, row: Any, point_text: str, original_text: str) -> str:
         original = clean_content_text(original_text)
@@ -831,49 +1189,40 @@ class LarkBitableClient:
         return self._create_record(fields)
 
     def _create_record(self, fields: dict[str, Any]) -> str | None:
-        token = self._get_tenant_access_token()
         url = (
             f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
             f"/tables/{self.config.bitable_table_id}/records"
         )
-        response = requests.post(
+        payload = self._request_json(
+            "post",
             url,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            use_auth=True,
             json={"fields": fields},
-            timeout=30,
         )
-        response.raise_for_status()
-        payload = response.json()
         if payload.get("code") != 0:
             raise RuntimeError(f"Lark create record failed: {payload}")
         return payload.get("data", {}).get("record", {}).get("record_id")
 
     def _update_record(self, record_id: str, fields: dict[str, Any]) -> None:
-        token = self._get_tenant_access_token()
         url = (
             f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
             f"/tables/{self.config.bitable_table_id}/records/{record_id}"
         )
-        response = requests.put(
+        payload = self._request_json(
+            "put",
             url,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            use_auth=True,
             json={"fields": fields},
-            timeout=30,
         )
-        response.raise_for_status()
-        payload = response.json()
         if payload.get("code") != 0:
             raise RuntimeError(f"Lark update record failed: {payload}")
 
     def _delete_record(self, record_id: str) -> None:
-        token = self._get_tenant_access_token()
         url = (
             f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
             f"/tables/{self.config.bitable_table_id}/records/{record_id}"
         )
-        response = requests.delete(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
-        response.raise_for_status()
-        payload = response.json()
+        payload = self._request_json("delete", url, use_auth=True)
         if payload.get("code") != 0:
             raise RuntimeError(f"Lark delete record failed: {payload}")
 
@@ -887,21 +1236,93 @@ class LarkBitableClient:
             or "1254047" in message
         )
 
-    def _get_tenant_access_token(self) -> str:
-        if self._tenant_access_token:
+    def _get_tenant_access_token(self, force_refresh: bool = False) -> str:
+        if self._tenant_access_token and not force_refresh:
             return self._tenant_access_token
         url = f"{self.config.base_url}/open-apis/auth/v3/tenant_access_token/internal"
-        response = requests.post(
+        payload = self._request_json(
+            "post",
             url,
+            use_auth=False,
             json={"app_id": self.config.app_id, "app_secret": self.config.app_secret},
-            timeout=30,
         )
-        response.raise_for_status()
-        payload = response.json()
         if payload.get("code") != 0:
             raise RuntimeError(f"Lark auth failed: {payload}")
         self._tenant_access_token = payload["tenant_access_token"]
         return self._tenant_access_token
+
+    def _request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        use_auth: bool,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        allow_token_refresh = use_auth
+        for attempt in range(1, self._max_request_attempts + 1):
+            headers: dict[str, str] = {}
+            if use_auth:
+                token = self._get_tenant_access_token(force_refresh=False)
+                headers["Authorization"] = f"Bearer {token}"
+            if json is not None:
+                headers["Content-Type"] = "application/json"
+
+            try:
+                response = requests.request(
+                    method=method.upper(),
+                    url=url,
+                    headers=headers or None,
+                    json=json,
+                    params=params,
+                    timeout=self._request_timeout_seconds,
+                )
+                should_refresh_token = use_auth and response.status_code == 401 and allow_token_refresh
+                if should_refresh_token:
+                    self._tenant_access_token = None
+                    self._get_tenant_access_token(force_refresh=True)
+                    allow_token_refresh = False
+                    continue
+
+                if response.status_code in {429, 500, 502, 503, 504} and attempt < self._max_request_attempts:
+                    time.sleep(self._retry_delay_seconds(attempt))
+                    continue
+
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise RuntimeError(f"Lark invalid response payload: {payload!r}")
+
+                if self._should_refresh_token_from_payload(payload) and allow_token_refresh:
+                    self._tenant_access_token = None
+                    self._get_tenant_access_token(force_refresh=True)
+                    allow_token_refresh = False
+                    continue
+                return payload
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt >= self._max_request_attempts:
+                    break
+                time.sleep(self._retry_delay_seconds(attempt))
+
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"Lark request failed without response: {method.upper()} {url}")
+
+    @staticmethod
+    def _retry_delay_seconds(attempt: int) -> float:
+        return min(8.0, float(max(1, attempt)))
+
+    @staticmethod
+    def _should_refresh_token_from_payload(payload: dict[str, Any]) -> bool:
+        code = str(payload.get("code", "")).strip()
+        message = str(payload.get("msg", "")).lower()
+        if not code or code == "0":
+            return False
+        token_cues = ("tenant_access_token", "access token", "token expired", "token invalid", "401")
+        return any(cue in message for cue in token_cues)
 
     def _prepare_fields_for_table(self, fields: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -925,12 +1346,10 @@ class LarkBitableClient:
         if self._table_field_names is not None:
             return self._table_field_names
 
-        token = self._get_tenant_access_token()
         url = (
             f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
             f"/tables/{self.config.bitable_table_id}/fields"
         )
-        headers = {"Authorization": f"Bearer {token}"}
         page_token: str | None = None
         names: set[str] = set()
 
@@ -938,9 +1357,12 @@ class LarkBitableClient:
             params: dict[str, Any] = {"page_size": 500}
             if page_token:
                 params["page_token"] = page_token
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
-            payload = response.json()
+            payload = self._request_json(
+                "get",
+                url,
+                use_auth=True,
+                params=params,
+            )
             if payload.get("code") != 0:
                 raise RuntimeError(f"Lark list fields failed: {payload}")
             data = payload.get("data", {}) or {}
@@ -949,8 +1371,21 @@ class LarkBitableClient:
                 field_name = str(item.get("field_name", "")).strip()
                 if field_name:
                     names.add(field_name)
+                    field_id = clean_content_text(item.get("field_id", ""))
+                    if field_id:
+                        self._table_field_ids[field_name] = field_id
                     field_type = int(item.get("type", 1) or 1)
                     self._table_field_types[field_name] = field_type
+                    options = (item.get("property", {}) or {}).get("options", []) or []
+                    if options:
+                        option_ids: dict[str, str] = {}
+                        for option in options:
+                            option_name = clean_content_text(option.get("name", ""))
+                            option_id = clean_content_text(option.get("id", ""))
+                            if option_name and option_id:
+                                option_ids[option_name] = option_id
+                        if option_ids:
+                            self._table_field_option_ids[field_name] = option_ids
                     if self._table_primary_field_name is None and index == 0:
                         self._table_primary_field_name = field_name
             if not data.get("has_more"):
@@ -973,19 +1408,16 @@ class LarkBitableClient:
             self._table_field_types[field_name] = 1
 
     def _create_text_field(self, field_name: str) -> None:
-        token = self._get_tenant_access_token()
         url = (
             f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
             f"/tables/{self.config.bitable_table_id}/fields"
         )
-        response = requests.post(
+        payload = self._request_json(
+            "post",
             url,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            use_auth=True,
             json={"field_name": field_name, "type": 1},
-            timeout=30,
         )
-        response.raise_for_status()
-        payload = response.json()
         if payload.get("code") == 0:
             return
         if self._is_field_name_duplicated(payload):
@@ -1000,6 +1432,10 @@ class LarkBitableClient:
 
     def _coerce_value_for_field(self, field_name: str, value: Any) -> Any:
         field_type = int(self._table_field_types.get(field_name, 1) or 1)
+        if field_type == 2:  # number
+            return self._normalize_number_value(value)
+        if field_type == 5:  # date/datetime
+            return self._normalize_date_value(value)
         if field_type == 4:  # multi-select
             return self._normalize_multi_select_value(value)
         if field_type == 3:  # single-select
@@ -1014,6 +1450,63 @@ class LarkBitableClient:
             text = clean_content_text(str(value)).lower()
             return text in {"1", "true", "yes", "是", "y"}
         return value
+
+    @staticmethod
+    def _normalize_date_value(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+
+        text = clean_content_text(str(value))
+        if not text:
+            return None
+        parsed: datetime | None = None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = None
+        if parsed is None:
+            for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                try:
+                    parsed = datetime.strptime(text, fmt)
+                    break
+                except ValueError:
+                    continue
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        else:
+            parsed = parsed.astimezone()
+        return int(parsed.timestamp() * 1000)
+
+    @staticmethod
+    def _normalize_number_value(value: Any) -> int | float | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return value
+
+        text = clean_content_text(str(value))
+        if not text:
+            return None
+        text = text.replace(",", "")
+        if re.fullmatch(r"[-+]?\d+", text):
+            try:
+                return int(text)
+            except ValueError:
+                return None
+        if re.fullmatch(r"[-+]?(?:\d+\.\d+|\d+\.\d*|\.\d+)", text):
+            try:
+                return float(text)
+            except ValueError:
+                return None
+        return None
 
     @staticmethod
     def _normalize_multi_select_value(value: Any) -> list[str]:
@@ -1036,6 +1529,128 @@ class LarkBitableClient:
             seen.add(key)
             output.append(item)
         return output[:20]
+
+    def _list_views(self) -> dict[str, str]:
+        url = (
+            f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
+            f"/tables/{self.config.bitable_table_id}/views"
+        )
+        page_token: str | None = None
+        output: dict[str, str] = {}
+
+        while True:
+            params: dict[str, Any] = {"page_size": 200}
+            if page_token:
+                params["page_token"] = page_token
+            payload = self._request_json("get", url, use_auth=True, params=params)
+            if payload.get("code") != 0:
+                raise RuntimeError(f"Lark list views failed: {payload}")
+            data = payload.get("data", {}) or {}
+            for item in data.get("items", []) or []:
+                view_name = clean_content_text(item.get("view_name", ""))
+                view_id = clean_content_text(item.get("view_id", ""))
+                if view_name and view_id:
+                    output[view_name] = view_id
+            if not data.get("has_more"):
+                break
+            page_token = clean_content_text(data.get("page_token", "")) or None
+            if not page_token:
+                break
+        return output
+
+    def _create_view(self, view_name: str) -> str:
+        url = (
+            f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
+            f"/tables/{self.config.bitable_table_id}/views"
+        )
+        payload = self._request_json(
+            "post",
+            url,
+            use_auth=True,
+            json={"view_name": view_name, "view_type": "grid"},
+        )
+        if payload.get("code") == 0:
+            return clean_content_text(payload.get("data", {}).get("view", {}).get("view_id", ""))
+        if self._is_view_name_duplicated(payload):
+            existing = self._list_views().get(view_name)
+            if existing:
+                return existing
+        raise RuntimeError(f"Lark create view failed: {payload}")
+
+    def _update_view(self, view_id: str, view_name: str, property_payload: dict[str, Any]) -> None:
+        url = (
+            f"{self.config.base_url}/open-apis/bitable/v1/apps/{self.config.bitable_app_token}"
+            f"/tables/{self.config.bitable_table_id}/views/{view_id}"
+        )
+        payload = self._request_json(
+            "patch",
+            url,
+            use_auth=True,
+            json={"view_name": view_name, "property": property_payload},
+        )
+        code = str(payload.get("code", "")).strip()
+        if code in {"", "0", "1254606"}:
+            return
+        raise RuntimeError(f"Lark update view failed: {payload}")
+
+    def _build_dashboard_view_property(self, filters: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[str]]:
+        if not filters:
+            return None, []
+        conditions: list[dict[str, Any]] = []
+        missing_fields: list[str] = []
+        for raw_filter in filters:
+            field_name = self._mapped_field_name(raw_filter.get("field_key", ""))
+            field_id = self._table_field_ids.get(field_name, "")
+            if not field_id:
+                missing_fields.append(field_name)
+                continue
+            value = clean_content_text(raw_filter.get("value", ""))
+            if not value:
+                continue
+            filter_value = self._normalize_filter_value_for_field(field_name=field_name, value=value)
+            conditions.append(
+                {
+                    "field_id": field_id,
+                    "operator": clean_content_text(raw_filter.get("operator", "")) or "is",
+                    "value": filter_value,
+                }
+            )
+        if missing_fields:
+            return None, missing_fields
+        return {
+            "filter_info": {
+                "conditions": conditions,
+                "conjunction": "and",
+            },
+            "hidden_fields": None,
+        }, []
+
+    def _mapped_field_name(self, field_key: Any) -> str:
+        key = clean_content_text(field_key)
+        if not key:
+            return ""
+        return clean_content_text(self.config.field_mapping.get(key, key))
+
+    def _normalize_filter_value_for_field(self, field_name: str, value: str) -> str:
+        field_type = int(self._table_field_types.get(field_name, 1) or 1)
+        if field_type in {3, 4}:
+            option_id = self._table_field_option_ids.get(field_name, {}).get(value, "")
+            if option_id:
+                return json.dumps([option_id], ensure_ascii=False)
+        return json.dumps([value], ensure_ascii=False)
+
+    @staticmethod
+    def _is_view_name_duplicated(payload: dict[str, Any]) -> bool:
+        code = str(payload.get("code", "")).strip()
+        message = str(payload.get("msg", "")).lower()
+        return code == "1254020" or "viewnameduplicated" in message
+
+    @staticmethod
+    def _field_type_label(field_type: int) -> str:
+        value = int(field_type or 0)
+        if value <= 0:
+            return "缺失"
+        return LARK_FIELD_TYPE_LABELS.get(value, str(value))
 
     def _fill_primary_field_with_title(self, fields: dict[str, Any], supported: set[str]) -> dict[str, Any]:
         primary = str(self._table_primary_field_name or "").strip()
@@ -1063,10 +1678,21 @@ class LarkBitableClient:
         point_subtags = " / ".join(point.secondary_tags)
         point_products = ", ".join(point.product_tags)
         point_url = build_timestamped_video_url(row["url"], point.timestamp_seconds)
+        source_name = self._display_source_name(str(row["source"] or ""), str(row["url"] or ""))
+        primary_product = self._pick_primary_product(point.product_tags)
+        platform_group = self._platform_group_label(
+            source_name=source_name,
+            raw_source=str(row["source"] or ""),
+            raw_url=str(row["url"] or ""),
+        )
+        author_display = self._format_author_for_point(row=row, point=point)
 
         published_at = row["published_at"]
+        published_date = ""
         if published_at:
-            published_at = datetime.fromisoformat(published_at).astimezone().strftime("%Y-%m-%d %H:%M")
+            published_dt = datetime.fromisoformat(published_at).astimezone()
+            published_date = published_dt.strftime("%Y-%m-%d")
+            published_at = published_dt.strftime("%Y-%m-%d %H:%M")
 
         fields = {
             mapping["feedback_uid"]: point.feedback_uid,
@@ -1080,13 +1706,15 @@ class LarkBitableClient:
             mapping["point_language"]: point.point_language,
             mapping["point_primary_tag"]: point.primary_tag,
             mapping["point_secondary_tags"]: point_subtags,
+            mapping["point_source_label"]: point.source_label,
+            mapping["comment_meta"]: point.comment_meta,
             mapping["point_timestamp"]: point.timestamp_label,
             mapping["point_timestamp_seconds"]: "" if point.timestamp_seconds is None else str(point.timestamp_seconds),
             mapping["title"]: row["title"],
             mapping["url"]: point_url or row["url"],
-            mapping["source"]: row["source"],
+            mapping["source"]: source_name,
             mapping["source_section"]: row["source_section"] or "",
-            mapping["author"]: row["author"] or "",
+            mapping["author"]: author_display,
             mapping["published_at"]: published_at or "",
             mapping["camera_category"]: point.primary_tag,
             mapping["camera_related"]: "是" if int(row["camera_related"] or 0) == 1 else "否",
@@ -1100,6 +1728,11 @@ class LarkBitableClient:
             mapping["source_actor_reason"]: row["source_actor_reason"] or "",
             mapping["domain_subtags"]: point_subtags,
             mapping["product_tags"]: point_products,
+            mapping["primary_product"]: primary_product,
+            mapping["platform_group"]: platform_group,
+            mapping["published_date"]: published_date,
+            mapping["is_negative"]: "是" if point.sentiment == "negative" else "否",
+            mapping["is_high_severity"]: "是" if point.severity == "high" else "否",
             mapping["camera_keyword_hits"]: keyword_hits,
             mapping["video_candidate"]: "是" if int(row["video_candidate"] or 0) == 1 else "否",
             mapping["summary"]: row["summary"] or "",
@@ -1113,6 +1746,88 @@ class LarkBitableClient:
             # duplicated semantics with point-level primary tag.
             fields[domain_tag_field] = ""
         return fields
+
+    @staticmethod
+    def _display_source_name(raw_source: str, raw_url: str) -> str:
+        source = clean_content_text(raw_source).lower()
+        if source.startswith("youtube"):
+            return "YouTube"
+        if source.startswith("bilibili"):
+            return "Bilibili"
+        if source.startswith("reddit"):
+            return "Reddit"
+        if "google_news" in source:
+            return "Google News"
+        if source.startswith("x_") or source == "x":
+            return "X"
+        if source.startswith("instagram"):
+            return "Instagram"
+        if source.startswith("nothing_community"):
+            return "Nothing Community"
+        if source.startswith("custom_rss"):
+            return "RSS"
+        url = clean_content_text(raw_url).lower()
+        if "youtube.com" in url or "youtu.be" in url:
+            return "YouTube"
+        if "bilibili.com" in url or "b23.tv" in url:
+            return "Bilibili"
+        if "reddit.com" in url:
+            return "Reddit"
+        if "x.com" in url or "twitter.com" in url:
+            return "X"
+        if "instagram.com" in url:
+            return "Instagram"
+        return clean_content_text(raw_source) or "Unknown"
+
+    @staticmethod
+    def _pick_primary_product(product_tags: list[str]) -> str:
+        for item in product_tags:
+            text = clean_content_text(item)
+            if text:
+                return text
+        return "未识别"
+
+    @staticmethod
+    def _platform_group_label(source_name: str, raw_source: str, raw_url: str) -> str:
+        display = clean_content_text(source_name)
+        source = clean_content_text(raw_source).lower()
+        url = clean_content_text(raw_url).lower()
+        if display in {"YouTube", "Bilibili", "Instagram"}:
+            return "视频平台"
+        if "youtu" in url or "bilibili.com" in url or "b23.tv" in url or "instagram.com" in url:
+            return "视频平台"
+        if display in {"Reddit", "Nothing Community"}:
+            return "社区论坛"
+        if "reddit.com" in url or "community" in source:
+            return "社区论坛"
+        if display == "X" or "x.com" in url or "twitter.com" in url:
+            return "社交平台"
+        if display in {"Google News", "RSS"} or "google_news" in source or "rss" in source:
+            return "媒体站点"
+        return "其他"
+
+    def _format_author_for_point(self, row: Any, point: PointRecord) -> str:
+        base_author = clean_content_text(row["author"] or "")
+        source_label = clean_content_text(point.source_label or "")
+        comment_author = clean_content_text(point.comment_author or "")
+        if source_label == "评论区":
+            if self._is_video_row(row):
+                if base_author and comment_author:
+                    return f"{base_author}，原视频； {base_author}，评论区，{comment_author}"
+                if base_author:
+                    return f"{base_author}，原视频； {base_author}，评论区"
+                if comment_author:
+                    return f"评论区，{comment_author}"
+                return "评论区"
+            fallback_author = comment_author or base_author
+            if fallback_author:
+                return f"评论区，{fallback_author}"
+            return "评论区"
+        if source_label == "原视频":
+            return f"{base_author}，原视频" if base_author else "原视频"
+        if source_label == "原帖子":
+            return f"{base_author}，原帖子" if base_author else "原帖子"
+        return base_author
 
 
 class MarkSyncedFn(Protocol):
@@ -1141,3 +1856,7 @@ class DeletePointLinkFn(Protocol):
 
 class MarkPointSyncFailedFn(Protocol):
     def __call__(self, feedback_item_id: int, point_uid: str, error: str) -> None: ...
+
+
+class SyncRowResultFn(Protocol):
+    def __call__(self, payload: dict[str, Any]) -> None: ...

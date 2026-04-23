@@ -14,9 +14,11 @@ from .config import AppConfig
 from .models import FeedbackItem
 from .source_profile import SourceProfiler
 from .storage import FeedbackRepository
-from .utils import clean_content_text, is_video_url, load_json, parse_datetime, since_hours, truncate
+from .utils import canonical_url, clean_content_text, is_video_url, load_json, parse_datetime, since_hours, truncate
 from .video_identity import extract_video_signatures, parse_video_signatures
 from .youtube_comments import YouTubeCommentMiner
+
+_EXPLICIT_VIDEO_FLAG_SOURCES = {"x_api", "x_twscrape", "x_snscrape"}
 
 
 @dataclass(slots=True)
@@ -103,7 +105,7 @@ class VideoAnalysisService:
             self._ensure_video_signatures(item)
             comment_result = self._analyze_youtube_comments(item)
             comment_points = comment_result.get("points", [])
-            result = self._process_single(item.url)
+            result = self._process_single(item.url, item.title)
             extra = dict(item.extra)
             extra["video_analysis"] = {
                 "processed_at": datetime.now(tz=timezone.utc).isoformat(),
@@ -209,11 +211,21 @@ class VideoAnalysisService:
     def _structured_point_rank(point: dict[str, Any]) -> tuple[int, int, int]:
         secondary_tags = [clean_content_text(str(tag)) for tag in (point.get("secondary_tags") or [])]
         priority = 2
-        for tag in secondary_tags:
-            matched = re.search(r"priority\s*:\s*p?([1-4])", tag, re.I)
+        raw_priority = clean_content_text(str(point.get("priority", ""))).upper()
+        matched = re.search(r"P([1-4])", raw_priority)
+        if matched:
+            priority = int(matched.group(1))
+        else:
+            comment_meta = clean_content_text(str(point.get("comment_meta", "")))
+            matched = re.search(r"priority\s*:\s*p?([1-4])", comment_meta, re.I)
             if matched:
                 priority = int(matched.group(1))
-                break
+            else:
+                for tag in secondary_tags:
+                    matched = re.search(r"priority\s*:\s*p?([1-4])", tag, re.I)
+                    if matched:
+                        priority = int(matched.group(1))
+                        break
         severity = clean_content_text(str(point.get("severity", ""))).lower()
         severity_rank = {"high": 3, "medium": 2, "low": 1}.get(severity, 1)
         sentiment = clean_content_text(str(point.get("sentiment", ""))).lower()
@@ -253,6 +265,8 @@ class VideoAnalysisService:
 
             for tag in point.get("secondary_tags", []) or []:
                 clean = clean_content_text(str(tag))
+                if self._is_comment_meta_tag(clean):
+                    continue
                 if clean and clean not in secondary_tags:
                     secondary_tags.append(clean)
 
@@ -291,6 +305,18 @@ class VideoAnalysisService:
 
         item.severity = severity_best
 
+    @staticmethod
+    def _is_comment_meta_tag(tag: str) -> bool:
+        value = clean_content_text(tag)
+        if not value:
+            return False
+        lowered = value.lower()
+        return (
+            lowered.startswith("priority:")
+            or lowered.startswith("purchasestage:")
+            or lowered.startswith("model:")
+        )
+
     def _pick_candidates(
         self,
         rows: list[Any],
@@ -318,7 +344,11 @@ class VideoAnalysisService:
             extra = load_json(row["extra_json"], {})
             video_analysis = extra.get("video_analysis", {}) if isinstance(extra, dict) else {}
             analysis_status = str(video_analysis.get("status", "")).strip().lower() if isinstance(video_analysis, dict) else ""
-            is_tracked_video = int(row["video_candidate"] or 0) == 1 or is_video_url(url)
+            source = str(row["source"] or "").strip().lower()
+            if source in _EXPLICIT_VIDEO_FLAG_SOURCES:
+                is_tracked_video = int(row["video_candidate"] or 0) == 1
+            else:
+                is_tracked_video = int(row["video_candidate"] or 0) == 1 or is_video_url(url)
             if not is_tracked_video:
                 continue
 
@@ -346,7 +376,7 @@ class VideoAnalysisService:
                 break
         return candidates, duplicate_rows, skipped_duplicates
 
-    def _process_single(self, url: str) -> VideoProcessResult:
+    def _process_single(self, url: str, title: str = "") -> VideoProcessResult:
         cfg = self.config.video_processing
         python_path = Path(cfg.videosummary_python).expanduser()
         script_path = Path(cfg.videosummary_script).expanduser()
@@ -383,7 +413,14 @@ class VideoAnalysisService:
                 error=f"transcribe_exit_{completed.returncode}: {self._short_error(output_text)}",
             )
 
-        output_file = self._extract_output_file(output_text, cfg.prompt_name, script_path.parent, before_files)
+        output_file = self._extract_output_file(
+            output_text,
+            cfg.prompt_name,
+            script_path.parent,
+            before_files,
+            url=url,
+            title=title,
+        )
         if not output_file:
             return VideoProcessResult(ok=False, error="output_file_not_found")
         return VideoProcessResult(ok=True, output_file=output_file)
@@ -394,7 +431,18 @@ class VideoAnalysisService:
         return cleaned[:200] if cleaned else "unknown_error"
 
     @staticmethod
-    def _extract_output_file(text: str, prompt_name: str, workdir: Path, before_files: set[str]) -> str:
+    def _extract_output_file(
+        text: str,
+        prompt_name: str,
+        workdir: Path,
+        before_files: set[str],
+        url: str = "",
+        title: str = "",
+    ) -> str:
+        target_url = canonical_url(str(url).strip()) if str(url).strip() else ""
+        target_title = clean_content_text(title)
+        require_identity_match = bool(target_url or target_title)
+
         pattern = re.compile(rf"优化版本 \({re.escape(prompt_name)}\):\s*(.+)")
         for raw_line in text.splitlines():
             line = raw_line.strip()
@@ -404,18 +452,50 @@ class VideoAnalysisService:
             candidate = Path(matched.group(1).strip()).expanduser()
             if not candidate.is_absolute():
                 candidate = (workdir / candidate).resolve()
-            if candidate.exists():
+            if candidate.exists() and VideoAnalysisService._output_file_matches_video(candidate, target_url, target_title):
                 return str(candidate)
 
         output_dir = workdir / "output"
         if output_dir.exists():
             candidates = sorted(output_dir.glob(f"*_{prompt_name}.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+            preferred: list[Path] = []
+            for path in candidates:
+                if str(path) in before_files:
+                    continue
+                if VideoAnalysisService._output_file_matches_video(path, target_url, target_title):
+                    preferred.append(path)
+            if preferred:
+                return str(preferred[0].resolve())
             for path in candidates:
                 if str(path) not in before_files:
                     return str(path.resolve())
             if candidates:
-                return str(candidates[0].resolve())
+                for path in candidates:
+                    if VideoAnalysisService._output_file_matches_video(path, target_url, target_title):
+                        return str(path.resolve())
+                if not require_identity_match:
+                    return str(candidates[0].resolve())
         return ""
+
+    @staticmethod
+    def _output_file_matches_video(path: Path, url: str, title: str) -> bool:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        if url:
+            if url in text:
+                return True
+            matched_url = re.search(r"\*\*视频链接\*\*:\s*(https?://\S+)", text)
+            if matched_url:
+                candidate_url = canonical_url(matched_url.group(1).strip())
+                if candidate_url == canonical_url(url):
+                    return True
+        if title:
+            head = text[:500]
+            if clean_content_text(title) and clean_content_text(title) in clean_content_text(head):
+                return True
+        return not url and not title
 
     @staticmethod
     def _parse_structured_output(path: str) -> dict[str, Any]:
@@ -536,8 +616,10 @@ class VideoAnalysisService:
 
     @staticmethod
     def _ensure_video_signatures(item: FeedbackItem) -> None:
-        if not item.video_candidate and not is_video_url(item.url):
-            return
+        if not item.video_candidate:
+            source = str(item.source or "").strip().lower()
+            if source in _EXPLICIT_VIDEO_FLAG_SOURCES or not is_video_url(item.url):
+                return
         signatures = extract_video_signatures(
             url=item.url,
             title=item.title,

@@ -8,6 +8,7 @@ from ..storage import FeedbackRepository
 from ..video_analysis import VideoAnalysisService
 from ..video_tasks import export_video_tasks
 from .service import (
+    build_competitor_video_payload,
     build_runtime_status_payload,
     build_summary_payload,
     build_video_candidates_payload,
@@ -71,6 +72,28 @@ def handle_api_get(
             limit = 50
         target_date = parse_report_date(raw_date) or resolve_default_date(repository, default_date)
         return 200, build_video_candidates_payload(repository, target_date, limit=limit)
+
+    if path == "/api/competitor/videos":
+        raw_start_date = (query.get("start_date") or [None])[0]
+        raw_end_date = (query.get("end_date") or [None])[0]
+        raw_limit = (query.get("limit") or ["30"])[0]
+        try:
+            limit = max(1, min(100, int(raw_limit)))
+        except ValueError:
+            limit = 30
+        start_date = parse_report_date(raw_start_date)
+        end_date = parse_report_date(raw_end_date)
+        target_date = resolve_default_date(repository, default_date)
+        if not start_date:
+            start_date = target_date
+        if not end_date:
+            end_date = target_date
+        return 200, build_competitor_video_payload(
+            repository,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
 
     if path == "/api/video/item":
         raw_id = (query.get("id") or [None])[0]

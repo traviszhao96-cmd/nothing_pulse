@@ -93,6 +93,27 @@ class FeedbackRepository:
             self.connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_lark_point_feedback_id ON lark_point_record_links(feedback_item_id)"
             )
+            self.connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS processing_checkpoints (
+                    feedback_item_id INTEGER NOT NULL,
+                    step TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error TEXT NOT NULL DEFAULT '',
+                    details_json TEXT NOT NULL DEFAULT '{}',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (feedback_item_id, step)
+                )
+                """
+            )
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_processing_checkpoint_run_id ON processing_checkpoints(run_id)"
+            )
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_processing_checkpoint_updated_at ON processing_checkpoints(updated_at)"
+            )
             self._migrate_schema()
             self.connection.commit()
 
@@ -152,7 +173,7 @@ class FeedbackRepository:
                 "ALTER TABLE feedback_items ADD COLUMN lark_last_sync_error TEXT NOT NULL DEFAULT ''"
             )
 
-    def insert(self, item: FeedbackItem) -> bool:
+    def insert(self, item: FeedbackItem) -> int | None:
         dedupe_exact_key = str(item.extra.get("dedupe_exact_key", ""))
         if not dedupe_exact_key:
             raise ValueError("missing dedupe_exact_key before insert")
@@ -237,7 +258,8 @@ class FeedbackRepository:
                 ),
             )
             self.connection.commit()
-        return cursor.rowcount > 0
+        row_id = int(cursor.lastrowid or 0)
+        return row_id if row_id > 0 else None
 
     def fetch_recent_dedupe_candidates(self, since: datetime, limit: int = 2000) -> list[dict[str, Any]]:
         with self._lock:
@@ -405,6 +427,22 @@ class FeedbackRepository:
                 (message, int(row_id)),
             )
             self.connection.commit()
+
+    def mark_lark_dirty(self, target_date: date | None = None) -> int:
+        sql = """
+            UPDATE feedback_items
+            SET
+                lark_dirty = 1,
+                lark_last_sync_error = ''
+        """
+        params: list[Any] = []
+        if target_date:
+            sql += " WHERE report_date = ?"
+            params.append(target_date.isoformat())
+        with self._lock:
+            cursor = self.connection.execute(sql, tuple(params))
+            self.connection.commit()
+            return int(cursor.rowcount or 0)
 
     def list_lark_point_links(self, feedback_item_id: int) -> list[sqlite3.Row]:
         with self._lock:
@@ -650,7 +688,16 @@ class FeedbackRepository:
                 SELECT *
                 FROM feedback_items
                 WHERE report_date = ? AND video_candidate = 1
-                ORDER BY published_at DESC
+                ORDER BY
+                    CAST(COALESCE(camera_related, 0) AS INTEGER) DESC,
+                    (
+                        CAST(COALESCE(json_extract(extra_json, '$.play_count'), 0) AS INTEGER) * 1.0 +
+                        CAST(COALESCE(json_extract(extra_json, '$.view_count'), 0) AS INTEGER) * 1.0 +
+                        CAST(COALESCE(json_extract(extra_json, '$.like_count'), 0) AS INTEGER) * 8.0 +
+                        CAST(COALESCE(json_extract(extra_json, '$.comment_count'), 0) AS INTEGER) * 12.0 +
+                        CAST(COALESCE(json_extract(extra_json, '$.favorite_count'), 0) AS INTEGER) * 6.0
+                    ) DESC,
+                    published_at DESC
                 LIMIT ?
                 """,
                 (target_date.isoformat(), max(1, limit)),
@@ -740,3 +787,61 @@ class FeedbackRepository:
                 ),
             )
             self.connection.commit()
+
+    def upsert_processing_checkpoint(
+        self,
+        feedback_item_id: int,
+        step: str,
+        run_id: str,
+        command: str,
+        status: str,
+        error: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        now_text = isoformat(datetime.now(tz=timezone.utc)) or ""
+        with self._lock:
+            self.connection.execute(
+                """
+                INSERT INTO processing_checkpoints (
+                    feedback_item_id,
+                    step,
+                    run_id,
+                    command,
+                    status,
+                    error,
+                    details_json,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(feedback_item_id, step) DO UPDATE SET
+                    run_id = excluded.run_id,
+                    command = excluded.command,
+                    status = excluded.status,
+                    error = excluded.error,
+                    details_json = excluded.details_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(feedback_item_id),
+                    str(step or "").strip() or "unknown",
+                    str(run_id or "").strip() or "unknown",
+                    str(command or "").strip() or "unknown",
+                    str(status or "").strip() or "unknown",
+                    (str(error or "").strip())[:480],
+                    dump_json(details or {}),
+                    now_text,
+                ),
+            )
+            self.connection.commit()
+
+    def list_processing_checkpoints(self, feedback_item_id: int) -> list[sqlite3.Row]:
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                SELECT feedback_item_id, step, run_id, command, status, error, details_json, updated_at
+                FROM processing_checkpoints
+                WHERE feedback_item_id = ?
+                ORDER BY step ASC
+                """,
+                (int(feedback_item_id),),
+            )
+            return list(cursor.fetchall())

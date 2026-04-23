@@ -113,12 +113,8 @@ sources:
     enabled: true
     base_url: https://nothing.community
     pages: 2
-    include_keywords:
-      - camera
-      - photo
-      - video
-      - 相机
-      - 拍照
+    # 如果希望 Nothing Community 的功能建议/系统问题也进入流水线，建议不要在这里先做 camera-only 过滤。
+    include_keywords: []
 
   google_news:
     enabled: true
@@ -170,12 +166,58 @@ sources:
     timeout_seconds: 90
     include_keywords: [nothing, camera, photo, video, review, "phone 3", "phone 4a", "phone 4a pro"]
 
+  bilibili:
+    enabled: false
+    # 当前走公开 web 搜索接口，不依赖额外 token
+    queries:
+      - "Nothing Phone 3 相机 评测"
+      - "Nothing Phone 4a 相机 评测"
+      - "Nothing Phone 4a Pro 相机 评测"
+      - "Nothing Phone camera review"
+    limit: 40
+    page_size: 20
+    max_pages: 3
+    order: pubdate
+    timeout_seconds: 30
+    include_keywords:
+      - nothing
+      - camera
+      - photo
+      - video
+      - 相机
+      - 拍照
+      - 评测
+      - 测评
+      - 开箱
+
   x_twscrape:
     enabled: false
     # twscrape 账号池数据库路径（需先用 twscrape 登录账号）
     db_path: ./data/twscrape_accounts.db
     query: '"Nothing Phone" (camera OR photo OR video)'
     limit: 60
+    include_keywords:
+      - nothing
+      - camera
+      - photo
+      - video
+
+  x_api:
+    enabled: false
+    # 官方 X API（recent search 默认仅支持最近 7 天）
+    bearer_token: ${X_BEARER_TOKEN}
+    query: '"Nothing Phone" (camera OR photo OR video)'
+    search_scope: recent
+    limit: 50
+    max_pages: 5
+    timeout_seconds: 30
+    exclude_retweets: true
+    exclude_replies_in_search: true
+    include_replies: true
+    include_self_replies: true
+    replies_per_post: 20
+    max_total_replies: 200
+    max_reply_pages: 3
     include_keywords:
       - nothing
       - camera
@@ -256,6 +298,18 @@ sources:
     enabled: false
     path: ./examples/sample_feedback.json
 
+# Optional defaults for the `competitor-video` command.
+competitor_video:
+  targets:
+    - iPhone 17 Pro
+    - Galaxy S26 Ultra
+    - Pixel 10 Pro
+  compare_to:
+    - Nothing Phone 4a Pro
+  platforms:
+    - youtube
+    - bilibili
+
 # Step 3+: Local AI enrichment (可复用 videosummary 的本地 OpenAI 兼容 API)
 local_ai:
   enabled: false
@@ -264,7 +318,7 @@ local_ai:
   api_key: local-key
   model: qwen2.5:14b-instruct
   temperature: 0.1
-  max_tokens: 1200
+  max_tokens: 1800
   timeout_seconds: 90
   retries: 1
   # 推荐使用项目内 v2 标签 prompt（一级标签英文枚举 + severity 统一）
@@ -335,9 +389,31 @@ lark:
     source_actor_reason: 来源判断依据
     domain_subtags: 二级标签
     product_tags: 产品标签
+    primary_product: 主产品
+    platform_group: 平台大类
+    published_date: 发布时间日期
+    is_negative: 是否负向
+    is_high_severity: 是否高严重
     camera_keyword_hits: 命中关键词
     video_candidate: 待补视频转写
     summary: 摘要
     content: 原文
     report_date: 入库日期
     status: 跟进状态
+
+# Optional: daily summary email
+email_summary:
+  enabled: false
+  # 若为 true，则 `run` 完成后自动发邮件；若你的日常流程是多步（如先 video-process 再 sync-lark），
+  # 建议保持 false，并在最后单独执行 `send-email-summary`
+  auto_send_after_run: false
+  smtp_host: smtp.example.com
+  smtp_port: 587
+  smtp_username: ${EMAIL_SMTP_USERNAME}
+  smtp_password: ${EMAIL_SMTP_PASSWORD}
+  from_addr: ${EMAIL_FROM_ADDR}
+  to_addrs:
+    - you@example.com
+  use_tls: true
+  use_ssl: false
+  subject_prefix: "[Nothing Camera Pulse]"

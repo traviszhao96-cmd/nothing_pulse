@@ -35,7 +35,7 @@ class LocalAIConfig:
     api_key: str = ""
     model: str = ""
     temperature: float = 0.1
-    max_tokens: int = 1200
+    max_tokens: int = 1800
     timeout_seconds: int = 90
     retries: int = 1
     prompt_path: str = ""
@@ -66,6 +66,21 @@ class VideoProcessingConfig:
 
 
 @dataclass(slots=True)
+class EmailSummaryConfig:
+    enabled: bool = False
+    auto_send_after_run: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    from_addr: str = ""
+    to_addrs: list[str] = field(default_factory=list)
+    use_tls: bool = True
+    use_ssl: bool = False
+    subject_prefix: str = "[Nothing Camera Pulse]"
+
+
+@dataclass(slots=True)
 class AppConfig:
     database_path: str
     report_dir: str
@@ -76,10 +91,12 @@ class AppConfig:
     camera_categories: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_CAMERA_CATEGORIES))
     schedule: dict[str, Any] = field(default_factory=dict)
     sources: dict[str, Any] = field(default_factory=dict)
+    competitor_video: dict[str, Any] = field(default_factory=dict)
     lark: dict[str, Any] = field(default_factory=dict)
     dedupe: DedupeConfig = field(default_factory=DedupeConfig)
     local_ai: LocalAIConfig = field(default_factory=LocalAIConfig)
     video_processing: VideoProcessingConfig = field(default_factory=VideoProcessingConfig)
+    email_summary: EmailSummaryConfig = field(default_factory=EmailSummaryConfig)
 
     @property
     def lark_enabled(self) -> bool:
@@ -95,6 +112,7 @@ def load_config(path: str | Path) -> AppConfig:
     dedupe_raw = dict(data.get("dedupe", {}))
     local_ai_raw = dict(data.get("local_ai", {}))
     video_processing_raw = dict(data.get("video_processing", {}))
+    email_summary_raw = dict(data.get("email_summary", {}))
     camera_filter_mode = str(data.get("camera_filter_mode", "strict")).lower()
     if camera_filter_mode not in {"strict", "review", "off"}:
         camera_filter_mode = "strict"
@@ -109,6 +127,7 @@ def load_config(path: str | Path) -> AppConfig:
         camera_categories=dict(data.get("camera_categories", DEFAULT_CAMERA_CATEGORIES)),
         schedule=dict(data.get("schedule", {})),
         sources=dict(data.get("sources", {})),
+        competitor_video=dict(data.get("competitor_video", {})),
         lark=dict(data.get("lark", {})),
         dedupe=DedupeConfig(
             jaccard_threshold=float(dedupe_raw.get("jaccard_threshold", 0.9)),
@@ -120,7 +139,7 @@ def load_config(path: str | Path) -> AppConfig:
             api_key=str(local_ai_raw.get("api_key", "")).strip(),
             model=str(local_ai_raw.get("model", "")).strip(),
             temperature=float(local_ai_raw.get("temperature", 0.1)),
-            max_tokens=int(local_ai_raw.get("max_tokens", 1200)),
+            max_tokens=int(local_ai_raw.get("max_tokens", 1800)),
             timeout_seconds=int(local_ai_raw.get("timeout_seconds", 90)),
             retries=int(local_ai_raw.get("retries", 1)),
             prompt_path=str(local_ai_raw.get("prompt_path", "")).strip(),
@@ -157,6 +176,20 @@ def load_config(path: str | Path) -> AppConfig:
             comment_ai_max_p3=max(0, min(300, int(video_processing_raw.get("comment_ai_max_p3", 100)))),
             comment_ai_max_p2_negative=max(0, min(300, int(video_processing_raw.get("comment_ai_max_p2_negative", 50)))),
             comment_max_points=max(5, min(80, int(video_processing_raw.get("comment_max_points", 40)))),
+        ),
+        email_summary=EmailSummaryConfig(
+            enabled=bool(email_summary_raw.get("enabled", False)),
+            auto_send_after_run=bool(email_summary_raw.get("auto_send_after_run", False)),
+            smtp_host=str(email_summary_raw.get("smtp_host", "")).strip(),
+            smtp_port=max(1, int(email_summary_raw.get("smtp_port", 587))),
+            smtp_username=str(email_summary_raw.get("smtp_username", "")).strip(),
+            smtp_password=str(email_summary_raw.get("smtp_password", "")).strip(),
+            from_addr=str(email_summary_raw.get("from_addr", "")).strip(),
+            to_addrs=[str(value).strip() for value in list(email_summary_raw.get("to_addrs", [])) if str(value).strip()],
+            use_tls=bool(email_summary_raw.get("use_tls", True)),
+            use_ssl=bool(email_summary_raw.get("use_ssl", False)),
+            subject_prefix=str(email_summary_raw.get("subject_prefix", "[Nothing Camera Pulse]")).strip()
+            or "[Nothing Camera Pulse]",
         ),
     )
 

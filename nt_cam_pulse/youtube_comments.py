@@ -443,12 +443,6 @@ class YouTubeCommentMiner:
                 priority = 2
 
         product_tags = self._map_models_to_tags(models)
-        secondary_tags = self._with_priority_stage_tags(
-            secondary_tags=secondary_tags,
-            priority=priority,
-            purchase_stage=purchase_stage,
-            models=models,
-        )
         score = self._score_rule_row(row=row, priority=priority, sentiment=sentiment)
         reason = "valid_viewpoint" if is_valid else "weak_product_or_opinion_signal"
 
@@ -603,30 +597,12 @@ class YouTubeCommentMiner:
         return "low"
 
     @staticmethod
-    def _with_priority_stage_tags(
-        secondary_tags: list[str],
-        priority: int,
-        purchase_stage: str,
-        models: list[str],
-    ) -> list[str]:
-        merged: list[str] = []
-        for value in secondary_tags:
-            clean = normalize_text(value)
-            if clean and clean not in merged:
-                merged.append(clean)
-        merged.append(f"Priority:P{priority}")
-        merged.append(f"PurchaseStage:{purchase_stage}")
-        for model in models:
-            merged.append(f"Model:{model}")
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for value in merged:
-            key = value.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(value)
-        return deduped[:8]
+    def _build_comment_meta(priority: int, purchase_stage: str) -> str:
+        p = min(4, max(1, int(priority)))
+        stage = clean_content_text(purchase_stage).lower()
+        if stage not in {"none", "considering", "owned"}:
+            stage = "none"
+        return f"Priority:P{p},PurchaseStage:{stage}"
 
     def _score_rule_row(self, row: _CommentRow, priority: int, sentiment: str) -> float:
         now_ts = int(datetime.now(tz=timezone.utc).timestamp())
@@ -824,12 +800,7 @@ class YouTubeCommentMiner:
             priority = base_rule.priority
         secondary_tags = self._normalize_secondary_tags(point.get("secondary_tags"), primary_tag=primary_tag)
         product_tags = self._normalize_product_tags(point.get("product_tags"), fallback=base_rule.product_tags)
-        secondary_tags = self._with_priority_stage_tags(
-            secondary_tags=secondary_tags,
-            priority=priority,
-            purchase_stage=purchase_stage,
-            models=[],
-        )
+        comment_meta = self._build_comment_meta(priority=priority, purchase_stage=purchase_stage)
         return {
             "text": truncate(text, 220),
             "original_text": truncate(original_text, 500),
@@ -839,6 +810,12 @@ class YouTubeCommentMiner:
             "severity": severity,
             "severity_reason": "youtube_comment_mining",
             "product_tags": product_tags,
+            "priority": f"P{priority}",
+            "purchase_stage": purchase_stage,
+            "comment_meta": comment_meta,
+            "source_label": "评论区",
+            "comment_author": truncate(clean_content_text(base_rule.row.author), 120),
+            "comment_id": base_rule.row.comment_id,
         }
 
     @staticmethod
@@ -952,6 +929,12 @@ class YouTubeCommentMiner:
                     "severity": row.severity,
                     "severity_reason": row.reason,
                     "product_tags": row.product_tags,
+                    "priority": f"P{row.priority}",
+                    "purchase_stage": row.purchase_stage,
+                    "comment_meta": self._build_comment_meta(priority=row.priority, purchase_stage=row.purchase_stage),
+                    "source_label": "评论区",
+                    "comment_author": truncate(clean_content_text(row.row.author), 120),
+                    "comment_id": row.row.comment_id,
                 }
             )
         return output
@@ -976,11 +959,21 @@ class YouTubeCommentMiner:
     def _point_sort_key(cls, point: dict[str, Any]) -> tuple[int, int, int]:
         secondary = [clean_content_text(str(tag)) for tag in (point.get("secondary_tags") or [])]
         priority = 2
-        for tag in secondary:
-            matched = re.search(r"priority\s*:\s*p?([1-4])", tag, re.I)
+        raw_priority = clean_content_text(str(point.get("priority", ""))).upper()
+        matched = re.search(r"P([1-4])", raw_priority)
+        if matched:
+            priority = int(matched.group(1))
+        else:
+            comment_meta = clean_content_text(str(point.get("comment_meta", "")))
+            matched = re.search(r"priority\s*:\s*p?([1-4])", comment_meta, re.I)
             if matched:
                 priority = int(matched.group(1))
-                break
+            else:
+                for tag in secondary:
+                    matched = re.search(r"priority\s*:\s*p?([1-4])", tag, re.I)
+                    if matched:
+                        priority = int(matched.group(1))
+                        break
         severity = cls._normalize_severity(str(point.get("severity", "")))
         sentiment = cls._normalize_sentiment(str(point.get("sentiment", "")))
         return priority, _SEVERITY_ORDER.get(severity, 1), _SENTIMENT_ORDER.get(sentiment, 2)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import date
 from typing import Any
 
@@ -8,6 +9,7 @@ from .ai_enricher import LocalAIEnricher
 from .classifier import CameraClassifier
 from .config import AppConfig
 from .fetchers import (
+    BilibiliSearchCollector,
     CustomRSSCollector,
     GoogleNewsCollector,
     InstagramInstaloaderCollector,
@@ -15,6 +17,7 @@ from .fetchers import (
     NothingCommunityCollector,
     RedditOAuthCollector,
     RedditSNScrapeCollector,
+    XAPICollector,
     YouTubeSearchCollector,
     YouTubeYtDlpCollector,
     XSnscrapeCollector,
@@ -31,6 +34,8 @@ from .source_profile import SourceProfiler
 from .storage import FeedbackRepository
 from .utils import clean_content_text, is_summary_redundant, is_video_url, load_json, parse_datetime, since_hours, truncate
 from .video_identity import extract_video_signatures, parse_video_signatures
+
+_EXPLICIT_VIDEO_FLAG_SOURCES = {"x_api", "x_twscrape", "x_snscrape"}
 
 
 class CameraPulsePipeline:
@@ -50,7 +55,13 @@ class CameraPulsePipeline:
     def _lark_only_new(self) -> bool:
         return bool(self.config.lark.get("only_sync_new_records", False))
 
-    def run(self, target_date: date | None = None, skip_lark: bool = False, dry_run: bool = False) -> PipelineResult:
+    def run(
+        self,
+        target_date: date | None = None,
+        skip_lark: bool = False,
+        dry_run: bool = False,
+        run_logger: Any | None = None,
+    ) -> PipelineResult:
         result = PipelineResult()
         since = since_hours(self.config.lookback_hours)
         filter_mode = self.config.camera_filter_mode
@@ -59,25 +70,76 @@ class CameraPulsePipeline:
             threshold=self.config.dedupe.jaccard_threshold,
             lookback_days=self.config.dedupe.lookback_days,
         )
+        if run_logger:
+            run_logger.note(
+                step="run-config",
+                since=since.isoformat(),
+                filter_mode=filter_mode,
+                collector_names=[collector.name for collector in self.collectors],
+            )
 
         for collector in self.collectors:
+            collector_name = collector.name
+            collector_started = time.monotonic()
+            collector_processed = 0
+            collector_inserted = 0
+            collector_duplicates = 0
+            self._emit_progress(
+                f"[run] collector_start name={collector_name} since={since.isoformat()} dry_run={1 if dry_run else 0}"
+            )
             try:
                 items = collector.fetch(since)
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"collector={collector.name} error={exc}")
+                if run_logger:
+                    run_logger.note(
+                        step="collector",
+                        collector=collector_name,
+                        status="failed",
+                        error=str(exc),
+                    )
+                self._emit_progress(f"[run] collector_error name={collector_name} error={exc}")
                 continue
 
             result.fetched += len(items)
+            if run_logger:
+                run_logger.note(
+                    step="collector",
+                    collector=collector_name,
+                    status="fetched",
+                    fetched=len(items),
+                )
+            self._emit_progress(
+                f"[run] collector_fetched name={collector_name} fetched={len(items)} "
+                f"elapsed={time.monotonic() - collector_started:.2f}s"
+            )
             for item in items:
+                collector_processed += 1
+                item_status = "pending"
+                item_reason = ""
                 is_camera_related, hits = self.scope_filter.is_camera_related(item)
                 item.camera_related = is_camera_related
                 item.camera_keyword_hits = hits[:20]
-                item.video_candidate = bool(item.video_candidate or is_video_url(item.url))
+                if item.source not in _EXPLICIT_VIDEO_FLAG_SOURCES:
+                    item.video_candidate = bool(item.video_candidate or is_video_url(item.url))
                 self._ensure_video_signatures(item)
 
                 if filter_mode == "strict":
                     if not is_camera_related:
                         result.skipped_non_camera += 1
+                        item_status = "skipped_non_camera"
+                        item_reason = "filter_strict_non_camera"
+                        self._emit_progress(
+                            f"[run] item_skip name={collector_name} reason=non_camera title={truncate(item.title, 80)}"
+                        )
+                        if run_logger:
+                            self._log_run_item(
+                                run_logger,
+                                collector_name=collector_name,
+                                item=item,
+                                status=item_status,
+                                reason=item_reason,
+                            )
                         continue
                     result.kept_camera_only += 1
                 elif filter_mode == "review":
@@ -91,7 +153,21 @@ class CameraPulsePipeline:
                 duplicated, reason = deduper.is_duplicate(item)
                 if duplicated:
                     result.skipped_duplicates += 1
+                    collector_duplicates += 1
                     item.extra["dedupe_reason"] = reason
+                    item_status = "skipped_duplicate"
+                    item_reason = reason
+                    self._emit_progress(
+                        f"[run] item_skip name={collector_name} reason=duplicate({reason}) title={truncate(item.title, 80)}"
+                    )
+                    if run_logger:
+                        self._log_run_item(
+                            run_logger,
+                            collector_name=collector_name,
+                            item=item,
+                            status=item_status,
+                            reason=item_reason,
+                        )
                     continue
 
                 self.classifier.classify(item)
@@ -103,24 +179,104 @@ class CameraPulsePipeline:
                 elif enrich_result.error and enrich_result.error != "local_ai_disabled":
                     result.ai_failed += 1
                     item.extra["local_ai_error"] = enrich_result.error
+                    self._emit_progress(
+                        f"[run] item_ai_failed name={collector_name} error={enrich_result.error} title={truncate(item.title, 80)}"
+                    )
                 if dry_run:
                     result.inserted += 1
+                    collector_inserted += 1
+                    item_status = "dry_run_ready"
+                    self._emit_progress(
+                        f"[run] item_ready name={collector_name} video={1 if item.video_candidate else 0} "
+                        f"title={truncate(item.title, 80)}"
+                    )
+                    if run_logger:
+                        self._log_run_item(
+                            run_logger,
+                            collector_name=collector_name,
+                            item=item,
+                            status=item_status,
+                        )
                     continue
 
                 try:
-                    inserted = self.repository.insert(item)
+                    inserted_row_id = self.repository.insert(item)
                 except sqlite3.IntegrityError:
                     result.skipped_duplicates += 1
+                    collector_duplicates += 1
+                    item_status = "skipped_duplicate"
+                    item_reason = "sqlite_integrity_error"
+                    self._emit_progress(
+                        f"[run] item_skip name={collector_name} reason=sqlite_integrity_error title={truncate(item.title, 80)}"
+                    )
+                    if run_logger:
+                        self._log_run_item(
+                            run_logger,
+                            collector_name=collector_name,
+                            item=item,
+                            status=item_status,
+                            reason=item_reason,
+                        )
                     continue
-                if inserted:
+                if inserted_row_id:
                     result.inserted += 1
+                    collector_inserted += 1
+                    item_status = "inserted"
+                    self._emit_progress(
+                        f"[run] item_inserted name={collector_name} row_id={inserted_row_id} "
+                        f"video={1 if item.video_candidate else 0} title={truncate(item.title, 80)}"
+                    )
+                    if run_logger:
+                        self.repository.upsert_processing_checkpoint(
+                            feedback_item_id=int(inserted_row_id),
+                            step="run",
+                            run_id=run_logger.run_id,
+                            command=run_logger.command,
+                            status=item_status,
+                            error=str(item.extra.get("local_ai_error", "") or ""),
+                            details={
+                                "collector": collector_name,
+                                "source": item.source,
+                                "source_item_id": item.source_item_id or "",
+                                "url": item.url,
+                                "camera_category": item.camera_category,
+                                "sentiment": item.sentiment,
+                                "severity": item.severity,
+                            },
+                        )
+                else:
+                    item_status = "skipped_insert"
+                    item_reason = "insert_returned_false"
+                if run_logger:
+                    self._log_run_item(
+                        run_logger,
+                        collector_name=collector_name,
+                        item=item,
+                        status=item_status,
+                        reason=item_reason,
+                        row_id=int(inserted_row_id) if inserted_row_id else None,
+                    )
+            self._emit_progress(
+                f"[run] collector_done name={collector_name} fetched={len(items)} "
+                f"processed={collector_processed} inserted={collector_inserted} "
+                f"duplicates={collector_duplicates} elapsed={time.monotonic() - collector_started:.2f}s"
+            )
 
         if dry_run:
+            if run_logger:
+                run_logger.note(step="run-summary", phase="dry-run", **self._pipeline_result_payload(result))
             return result
 
         report_date = target_date or date.today()
         report_path = generate_daily_report(self.repository, report_date, self.config.report_dir)
         result.report_path = str(report_path)
+        if run_logger:
+            run_logger.note(
+                step="report",
+                status="generated",
+                report_date=report_date.isoformat(),
+                report_path=str(report_path),
+            )
 
         if not skip_lark and self.lark_client.is_available():
             pending_rows = self.repository.fetch_lark_pending(
@@ -128,6 +284,14 @@ class CameraPulsePipeline:
                 limit=500,
                 only_new=self._lark_only_new(),
             )
+            if run_logger:
+                run_logger.note(
+                    step="sync-lark",
+                    status="start",
+                    pending_before=len(pending_rows),
+                    only_new=self._lark_only_new(),
+                )
+            row_events: list[dict[str, Any]] = []
             synced = self.lark_client.sync_rows(
                 pending_rows,
                 mark_synced=self.repository.mark_synced,
@@ -137,10 +301,50 @@ class CameraPulsePipeline:
                 upsert_point_link=self.repository.upsert_lark_point_link,
                 delete_point_link=self.repository.delete_lark_point_link,
                 mark_point_failed=self.repository.mark_lark_point_failed,
+                on_row_result=row_events.append,
             )
             result.synced_to_lark = synced
+            if run_logger:
+                for payload in row_events:
+                    run_logger.item(step="sync-lark", **payload)
+                    row_id = int(payload.get("row_id") or 0)
+                    if row_id > 0:
+                        self.repository.upsert_processing_checkpoint(
+                            feedback_item_id=row_id,
+                            step="sync-lark",
+                            run_id=run_logger.run_id,
+                            command=run_logger.command,
+                            status=str(payload.get("status") or "unknown"),
+                            error=str(payload.get("error") or ""),
+                            details={
+                                "title": str(payload.get("title") or ""),
+                                "url": str(payload.get("url") or ""),
+                                "point_count": int(payload.get("point_count") or 0),
+                                "record_id": str(payload.get("record_id") or ""),
+                            },
+                        )
+                run_logger.note(
+                    step="sync-lark",
+                    status="finish",
+                    pending_before=len(pending_rows),
+                    synced=synced,
+                    pending_after=self.repository.count_lark_pending(report_date),
+                )
+        elif run_logger:
+            run_logger.note(
+                step="sync-lark",
+                status="skipped",
+                reason="skip_lark_flag" if skip_lark else "lark_unavailable",
+            )
+
+        if run_logger:
+            run_logger.note(step="run-summary", phase="complete", **self._pipeline_result_payload(result))
 
         return result
+
+    @staticmethod
+    def _emit_progress(message: str) -> None:
+        print(message, flush=True)
 
     def generate_report_only(self, target_date: date) -> str:
         path = generate_daily_report(self.repository, target_date, self.config.report_dir)
@@ -158,6 +362,7 @@ class CameraPulsePipeline:
         target_date: date | None = None,
         limit: int = 500,
         force_all_updates: bool = False,
+        on_row_result: Any | None = None,
     ) -> int:
         rows = self.repository.fetch_lark_pending(
             target_date=target_date,
@@ -173,6 +378,7 @@ class CameraPulsePipeline:
             upsert_point_link=self.repository.upsert_lark_point_link,
             delete_point_link=self.repository.delete_lark_point_link,
             mark_point_failed=self.repository.mark_lark_point_failed,
+            on_row_result=on_row_result,
         )
 
     def retag_with_ai(
@@ -248,10 +454,10 @@ class CameraPulsePipeline:
                 language=row["language"] or "unknown",
                 extra=load_json(row["extra_json"], {}),
             )
-            if is_video_url(item.url):
+            if item.source not in _EXPLICIT_VIDEO_FLAG_SOURCES and is_video_url(item.url):
                 item.video_candidate = True
             self._ensure_video_signatures(item)
-            if (not clean_content_text(item.author or "")) and is_video_url(item.url):
+            if (not clean_content_text(item.author or "")) and item.video_candidate:
                 meta = fetch_video_page_meta(item.url, timeout_seconds=8)
                 author = clean_content_text(meta.author or "")
                 if author:
@@ -349,11 +555,11 @@ class CameraPulsePipeline:
                 continue
 
             try:
-                ok = self.repository.insert(item)
+                inserted_row_id = self.repository.insert(item)
             except sqlite3.IntegrityError:
                 skipped_duplicates += 1
                 continue
-            if ok:
+            if inserted_row_id:
                 inserted += 1
                 known_video_signatures.update(item_signatures)
 
@@ -386,8 +592,9 @@ class CameraPulsePipeline:
                 item.summary = truncate(article_body, 240)
 
     def _ensure_video_signatures(self, item: FeedbackItem) -> None:
-        if not item.video_candidate and not is_video_url(item.url):
-            return
+        if not item.video_candidate:
+            if item.source in _EXPLICIT_VIDEO_FLAG_SOURCES or not is_video_url(item.url):
+                return
         signatures = extract_video_signatures(
             url=item.url,
             title=item.title,
@@ -405,7 +612,11 @@ class CameraPulsePipeline:
             if not url:
                 continue
             extra = load_json(row["extra_json"], {})
-            is_tracked_video = int(row["video_candidate"] or 0) == 1 or is_video_url(url)
+            source = str(row["source"] or "").strip().lower()
+            if source in _EXPLICIT_VIDEO_FLAG_SOURCES:
+                is_tracked_video = int(row["video_candidate"] or 0) == 1
+            else:
+                is_tracked_video = int(row["video_candidate"] or 0) == 1 or is_video_url(url)
             if not is_tracked_video:
                 continue
             existing = parse_video_signatures(extra.get("video_signatures")) if isinstance(extra, dict) else []
@@ -417,6 +628,51 @@ class CameraPulsePipeline:
             )
             pool.update(signatures)
         return pool
+
+    @staticmethod
+    def _pipeline_result_payload(result: PipelineResult) -> dict[str, Any]:
+        return {
+            "fetched": result.fetched,
+            "kept_camera_only": result.kept_camera_only,
+            "retained_non_camera": result.retained_non_camera,
+            "skipped_non_camera": result.skipped_non_camera,
+            "skipped_duplicates": result.skipped_duplicates,
+            "inserted": result.inserted,
+            "ai_enriched": result.ai_enriched,
+            "ai_failed": result.ai_failed,
+            "synced_to_lark": result.synced_to_lark,
+            "report_path": result.report_path,
+            "error_count": len(result.errors),
+        }
+
+    @staticmethod
+    def _log_run_item(
+        run_logger: Any,
+        *,
+        collector_name: str,
+        item: FeedbackItem,
+        status: str,
+        reason: str = "",
+        row_id: int | None = None,
+    ) -> None:
+        run_logger.item(
+            step="run-item",
+            status=status,
+            row_id=row_id,
+            collector=collector_name,
+            source=item.source,
+            source_item_id=item.source_item_id or "",
+            title=truncate(clean_content_text(item.title), 240),
+            url=item.url,
+            camera_related=bool(item.camera_related),
+            camera_hits=item.camera_keyword_hits[:10],
+            reason=reason,
+            camera_category=item.camera_category,
+            sentiment=item.sentiment,
+            severity=item.severity,
+            video_candidate=bool(item.video_candidate),
+            ai_error=item.extra.get("local_ai_error", ""),
+        )
 
     def _get_article_extractor(self, source: str, source_cfg: dict[str, Any]) -> ArticleBodyExtractor | None:
         extractor = self._article_extractors.get(source)
@@ -439,6 +695,8 @@ class CameraPulsePipeline:
 
 
 def _instantiate_collector(name: str, source_cfg: dict[str, Any], product_keywords: list[str]) -> list[BaseCollector]:
+    if name == "bilibili":
+        return [BilibiliSearchCollector(name, source_cfg, product_keywords)]
     if name == "nothing_community":
         return [NothingCommunityCollector(name, source_cfg, product_keywords)]
     if name == "google_news":
@@ -453,6 +711,8 @@ def _instantiate_collector(name: str, source_cfg: dict[str, Any], product_keywor
         return [YouTubeSearchCollector(name, source_cfg, product_keywords)]
     if name == "youtube_yt_dlp":
         return [YouTubeYtDlpCollector(name, source_cfg, product_keywords)]
+    if name == "x_api":
+        return [XAPICollector(name, source_cfg, product_keywords)]
     if name == "x_twscrape":
         return [XTWScrapeCollector(name, source_cfg, product_keywords)]
     if name == "x_snscrape":
