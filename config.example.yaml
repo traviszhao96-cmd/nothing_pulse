@@ -86,17 +86,14 @@ camera_categories:
 
 # Optional model/product hints to reduce irrelevant fetches before camera filtering.
 product_keywords:
-  - nothing phone
-  - cmf phone
-  - nothing os
-  - frogger
-  - pacman
-  - phone 3
-  - phone 3a
-  - phone 3a pro
-  - phone 4a
-  - phone 4a pro
-  - phone 2a
+  - target phone
+  - target os
+  - device a
+  - device a pro
+  - device b
+  - device b pro
+  - model x
+  - model x pro
 
 dedupe:
   jaccard_threshold: 0.9
@@ -111,14 +108,15 @@ schedule:
 sources:
   nothing_community:
     enabled: true
-    base_url: https://nothing.community
+    # 字段名沿用现有代码兼容；示例地址可替换成你的品牌社区
+    base_url: https://community.example.com
     pages: 2
-    # 如果希望 Nothing Community 的功能建议/系统问题也进入流水线，建议不要在这里先做 camera-only 过滤。
+    # 如果希望品牌社区里的功能建议/系统问题也进入流水线，建议不要在这里先做 camera-only 过滤。
     include_keywords: []
 
   google_news:
     enabled: true
-    query: '"Nothing Phone" (camera OR photo OR video OR review)'
+    query: '"Target Phone" (camera OR photo OR video OR review)'
     language: en-US
     country: US
     edition: US:en
@@ -136,19 +134,19 @@ sources:
       - name: Android Authority
         url: https://www.androidauthority.com/feed/
         include_keywords:
-          - nothing
+          - target
           - camera
 
   youtube:
     enabled: false
     api_key: ${YOUTUBE_API_KEY}
-    query: "Nothing Phone camera review"
+    query: "Target Phone camera review"
     limit: 30
     order: date
     region_code: US
     language: en
     include_keywords:
-      - nothing
+      - target
       - camera
       - review
 
@@ -156,31 +154,31 @@ sources:
     enabled: true
     executable: yt-dlp
     queries:
-      - "Nothing Phone 3 camera review"
-      - "Nothing Phone 3 camera test"
-      - "Nothing Phone 4a camera review"
-      - "Nothing Phone 4a camera test"
-      - "Nothing Phone 4a Pro camera review"
-      - "Nothing Phone 4a Pro camera test"
+      - "Target Phone camera review"
+      - "Target Phone camera test"
+      - "Target Device Pro camera review"
+      - "Target Device Pro camera test"
+      - "Target Device Ultra camera review"
+      - "Target Device Ultra camera test"
     limit: 25
     timeout_seconds: 90
-    include_keywords: [nothing, camera, photo, video, review, "phone 3", "phone 4a", "phone 4a pro"]
+    include_keywords: [target, camera, photo, video, review, "device pro", "device ultra"]
 
   bilibili:
     enabled: false
     # 当前走公开 web 搜索接口，不依赖额外 token
     queries:
-      - "Nothing Phone 3 相机 评测"
-      - "Nothing Phone 4a 相机 评测"
-      - "Nothing Phone 4a Pro 相机 评测"
-      - "Nothing Phone camera review"
+      - "Target Phone 相机 评测"
+      - "Target Device Pro 相机 评测"
+      - "Target Device Ultra 相机 评测"
+      - "Target Phone camera review"
     limit: 40
     page_size: 20
     max_pages: 3
     order: pubdate
     timeout_seconds: 30
     include_keywords:
-      - nothing
+      - target
       - camera
       - photo
       - video
@@ -194,10 +192,10 @@ sources:
     enabled: false
     # twscrape 账号池数据库路径（需先用 twscrape 登录账号）
     db_path: ./data/twscrape_accounts.db
-    query: '"Nothing Phone" (camera OR photo OR video)'
+    query: '"Target Phone" (camera OR photo OR video)'
     limit: 60
     include_keywords:
-      - nothing
+      - target
       - camera
       - photo
       - video
@@ -206,7 +204,7 @@ sources:
     enabled: false
     # 官方 X API（recent search 默认仅支持最近 7 天）
     bearer_token: ${X_BEARER_TOKEN}
-    query: '"Nothing Phone" (camera OR photo OR video)'
+    query: '"Target Phone" (camera OR photo OR video)'
     search_scope: recent
     limit: 50
     max_pages: 5
@@ -219,7 +217,7 @@ sources:
     max_total_replies: 200
     max_reply_pages: 3
     include_keywords:
-      - nothing
+      - target
       - camera
       - photo
       - video
@@ -227,14 +225,14 @@ sources:
   x_snscrape:
     enabled: false
     # 当 twscrape 不可用时可先用 snscrape 快速验证
-    query: '"Nothing Phone" (camera OR photo OR video)'
+    query: '"Target Phone" (camera OR photo OR video)'
     limit: 60
     timeout_seconds: 30
     nitter_instances:
       - https://nitter.net
       - https://nitter.poast.org
     include_keywords:
-      - nothing
+      - target
       - camera
       - photo
       - video
@@ -243,13 +241,13 @@ sources:
     enabled: false
     # 可以填 hashtag 或 profile，两者至少一个
     hashtags:
-      - nothingphone
-      - nothingcamera
+      - targetphone
+      - targetcamera
     profiles: []
     limit: 60
     timeout_seconds: 45
     include_keywords:
-      - nothing
+      - target
       - camera
       - photo
       - video
@@ -261,14 +259,14 @@ sources:
     enabled: true
     client_id: ${REDDIT_CLIENT_ID}
     client_secret: ${REDDIT_CLIENT_SECRET}
-    user_agent: NothingCameraPulse/1.0
+    user_agent: MediaFeedbackPulse/1.0
     # 可选：为 Reddit 单独设置回溯窗口（天），不影响其他源
     lookback_days: 730
     subreddits:
-      - NOTHING
+      - TargetBrand
       - Android
       - Smartphone
-    query: "nothing phone"
+    query: "target phone"
     limit: 120
     per_subreddit_limit: 80
     include_submissions: true
@@ -283,13 +281,13 @@ sources:
     enabled: false
     # 若 snscrape 在当前 Python 版本不可用，会自动降级到 reddit 公共接口抓取
     subreddits:
-      - NOTHING
+      - TargetBrand
       - Android
       - Smartphone
-    query: '"Nothing Phone" (camera OR photo OR video)'
+    query: '"Target Phone" (camera OR photo OR video)'
     limit: 80
     include_keywords:
-      - nothing
+      - target
       - camera
       - photo
       - video
@@ -301,11 +299,11 @@ sources:
 # Optional defaults for the `competitor-video` command.
 competitor_video:
   targets:
-    - iPhone 17 Pro
-    - Galaxy S26 Ultra
-    - Pixel 10 Pro
+    - Device A Pro
+    - Device B Ultra
+    - Device C Pro
   compare_to:
-    - Nothing Phone 4a Pro
+    - Target Device Pro
   platforms:
     - youtube
     - bilibili
@@ -327,8 +325,8 @@ local_ai:
 # Video processing (manual + nightly auto)
 video_processing:
   enabled: false
-  videosummary_python: /Users/travis.zhao/videosummary/venv/bin/python
-  videosummary_script: /Users/travis.zhao/videosummary/transcribe.py
+  videosummary_python: /path/to/videosummary/venv/bin/python
+  videosummary_script: /path/to/videosummary/transcribe.py
   prompt_name: camera_feedback
   model_size: tiny
   timeout_seconds: 1800
@@ -349,7 +347,7 @@ video_processing:
   comment_ai_max_p2_negative: 50
   comment_max_points: 40
 
-# Step 4: Lark bitable sync
+# Step 4: Bitable / workspace sync
 lark:
   enabled: false
   base_url: https://open.feishu.cn
@@ -416,4 +414,4 @@ email_summary:
     - you@example.com
   use_tls: true
   use_ssl: false
-  subject_prefix: "[Nothing Camera Pulse]"
+  subject_prefix: "[Media Feedback Pulse]"

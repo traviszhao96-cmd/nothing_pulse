@@ -1,27 +1,27 @@
-# Nothing Camera Pulse
+# Media Feedback Pulse
 
-Nothing Camera Pulse 是一套面向 `Nothing / CMF` 以及竞品机型的社媒与媒体反馈分析流水线，当前已经不只是 `camera-only` 抓取，而是覆盖了：
+Media Feedback Pulse 是一套面向品牌机型与竞品机型的社媒与媒体反馈分析流水线，当前已经不只是 `camera-only` 抓取，而是覆盖了：
 
 1. 多源内容采集与去重
 2. camera 相关过滤与 AI 结构化标签
 3. 视频转写 / 评论区挖掘 / 竞品视频归类
-4. Lark 多维表格同步、Dashboard 辅助字段、日报与 HTML 周报邮件
+4. 多维表格同步、Dashboard 辅助字段、日报与 HTML 周报邮件
 
 适合放在 GitHub 仓库简介的一句话：
 
-> Multi-source Nothing / CMF media feedback pipeline with camera tagging, video analysis, Lark sync, and HTML weekly reporting.
+> Multi-source media feedback pipeline with camera tagging, video analysis, workspace sync, and HTML weekly reporting.
 
 ## 当前能力范围
 
-- 面向 Nothing / CMF 的媒体评测、社媒讨论、评论区反馈和竞品视频检索
+- 面向目标品牌机型的媒体评测、社媒讨论、评论区反馈和竞品视频检索
 - 支持 `camera-only` 强过滤，也支持更宽松的 review 模式保留非相机内容
-- 支持 YouTube / Bilibili / X / Google News / RSS / Instagram / Reddit / Nothing Community
-- 支持视频分析结果回写数据库、Lark、多端前端页面和 HTML 邮件
-- 支持从历史数据回填 AI 标签、重刷 Lark、增量生成周报
+- 支持 YouTube / Bilibili / X / Google News / RSS / Instagram / Reddit / 品牌社区
+- 支持视频分析结果回写数据库、工作台、多端前端页面和 HTML 邮件
+- 支持从历史数据回填 AI 标签、重刷工作台、增量生成周报
 
 ## 功能概览
 
-- 多源采集：Nothing Community、Google News、自定义 RSS、YouTube（Data API / yt-dlp）、Bilibili、X（官方 API / twscrape / snscrape）、Instagram、Reddit
+- 多源采集：品牌社区、Google News、自定义 RSS、YouTube（Data API / yt-dlp）、Bilibili、X（官方 API / twscrape / snscrape）、Instagram、Reddit
 - camera-only 过滤：命中相机关键词才入库；也支持 `review` 模式先保留再打标
 - 去重：链接去重 + 文本近似去重（Jaccard）+ 视频签名去重
 - 自动分类：`画质 / 对焦 / 曝光 / 夜景 / 人像 / 视频 / 防抖 / 性能发热 / 功能建议`
@@ -30,15 +30,15 @@ Nothing Camera Pulse 是一套面向 `Nothing / CMF` 以及竞品机型的社媒
 - 视频处理：调用 `videosummary` 做转写、观点抽取、评论区优先级筛选、重复视频复用
 - 竞品视频检索：自动生成 query，支持 `compare-to`、竞品品牌/机型标记、视频类型归类
 - 报告输出：Markdown 日报 + HTML 周报预览 + SMTP 群发邮件
-- 飞书同步：支持观点粒度拆分、Lark Dashboard 辅助字段、历史数据回刷
+- 工作台同步：支持观点粒度拆分、Dashboard 辅助字段、历史数据回刷
 - 前后端解耦：Backend API（数据访问/聚合）+ Frontend（可视化展示）
 
 ## 常用场景
 
-- 日常增量抓取 Nothing / CMF 相机反馈
+- 日常增量抓取目标品牌相机反馈
 - 周度汇总媒体评测和评论区洞察并发邮件
 - 拉竞品视频做相机对比洞察
-- 把 AI 结构化结果同步到 Lark 做问题看板
+- 把 AI 结构化结果同步到工作台做问题看板
 - 对历史视频 backlog 批量补跑分析
 
 ## 目录
@@ -54,7 +54,7 @@ Nothing Camera Pulse 是一套面向 `Nothing / CMF` 以及竞品机型的社媒
 - `nt_cam_pulse/weekly_email.py`：HTML 周报构建与发送
 - `nt_cam_pulse/backend/`：后端 API 路由与服务
 - `nt_cam_pulse/frontend/`：前端静态服务
-- `nt_cam_pulse/lark.py`：飞书多维表格同步
+- `nt_cam_pulse/lark.py`：多维表格同步适配层
 - `nt_cam_pulse/process_log.py`：过程日志与处理 run 记录
 - `nt_cam_pulse/report.py`：日报生成
 - `nt_cam_pulse/web/`：前端静态页面资源
@@ -64,7 +64,7 @@ Nothing Camera Pulse 是一套面向 `Nothing / CMF` 以及竞品机型的社媒
 ## 安装
 
 ```bash
-cd /Users/travis.zhao/nt_cam_pulse
+cd /path/to/nt_cam_pulse
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -97,7 +97,7 @@ cp .env.example .env
 - `local_ai.*`（启用 DeepSeek/OpenAI 兼容 API；建议使用 `./prompts/deepseek_tagging_v2.md`）
 - `video_processing.*`（对视频候选执行 videosummary 手动/夜间自动处理）
 - `video_processing.comment_*`（YouTube 评论：`newest + top` 双通道抓取、规则优先级筛选、仅高价值评论走 AI）
-- `lark.enabled` 与飞书密钥
+- `lark.enabled` 与多维表格密钥
 - `lark.auto_create_fields`（建议开启；空表首次同步会自动补齐缺失列）
 - `email_summary.*`（可选：通过 SMTP 发送每日处理汇报邮件）
 
@@ -146,7 +146,7 @@ sources:
 - `instagram_instaloader` 在未登录时可抓公开内容；登录后稳定性更高。
 - `reddit` 已支持 `OAuth 优先 + PullPush 降级`。若要拿到“最新实时”Reddit 数据，建议配置 `REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET`；PullPush 更适合历史回填。
 - `sources.reddit.lookback_days` 可为 Reddit 单独设置回溯天数（例如 `730`），用于先拉历史高量数据，不影响其他平台窗口。
-- `nothing_community` 如果也想保留 OS 建议、系统体验帖，`include_keywords` 不要只写 `camera/photo/video`，否则很多帖子会在入库前就被过滤掉，即使 `camera_filter_mode: review` 也看不到。
+- `brand_community` 如果也想保留 OS 建议、系统体验帖，`include_keywords` 不要只写 `camera/photo/video`，否则很多帖子会在入库前就被过滤掉，即使 `camera_filter_mode: review` 也看不到。
 
 `twscrape` 账号池初始化示例：
 
@@ -172,7 +172,7 @@ python -m nt_cam_pulse.cli --config config.yaml run
 # 2) 处理待分析视频
 python -m nt_cam_pulse.cli --config config.yaml video-process --limit 20
 
-# 3) 同步到 Lark
+# 3) 同步到工作台
 python -m nt_cam_pulse.cli --config config.yaml sync-lark --limit 200
 
 # 4) 生成或发送周报
@@ -195,9 +195,9 @@ python -m nt_cam_pulse.cli --config config.yaml run --dry-run
 
 ```bash
 python -m nt_cam_pulse.cli --config config.yaml competitor-video \
-  --target "iPhone 17 Pro" \
-  --target "Galaxy S26 Ultra" \
-  --compare-to "Nothing Phone 4a Pro" \
+  --target "Device A Pro" \
+  --target "Device B Ultra" \
+  --compare-to "Target Device Pro" \
   --platform youtube \
   --platform bilibili \
   --analyze \
@@ -206,8 +206,8 @@ python -m nt_cam_pulse.cli --config config.yaml competitor-video \
 
 说明：
 
-- 会自动生成 `camera review / camera test / vs Nothing` 类查询词
-- 检索结果会复用现有数据库、AI enrich、视频分析和 Lark 同步链路
+- 会自动生成 `camera review / camera test / vs target device` 类查询词
+- 检索结果会复用现有数据库、AI enrich、视频分析和工作台同步链路
 - 每条结果会额外写入竞品结构化信息：`竞品品牌`、`竞品机型`、`对比对象`、`视频类型`、`相机焦点标签`
 
 ### 周报邮件工作流
@@ -248,21 +248,21 @@ python -m nt_cam_pulse.cli --config config.yaml weekly-email \
 python -m nt_cam_pulse.cli --config config.yaml report --date 2026-03-31
 ```
 
-### 只同步飞书
+### 只同步工作台
 
 ```bash
 python -m nt_cam_pulse.cli --config config.yaml sync-lark --date 2026-03-31
 ```
 
-支持更新已同步记录（upsert），如果分析结果有变更会自动重推到同一条 Lark 记录。
+支持更新已同步记录（upsert），如果分析结果有变更会自动重推到同一条记录。
 
 说明：
 
-- Lark 默认按“观点粒度”同步：`1 条视频/文章` 可能会拆成 `N 条观点记录`。
+- 默认按“观点粒度”同步：`1 条视频/文章` 可能会拆成 `N 条观点记录`。
 - 每条记录会自动带 `反馈ID`（内容级唯一短 ID）与 `观点ID`（观点级唯一短 ID），便于筛选和追踪。
 - 如需“只同步新增，不回刷历史”，可在 `config.yaml` 设置：`lark.only_sync_new_records: true`。
 
-### 初始化 Lark 问题看板视图
+### 初始化工作台问题看板视图
 
 ```bash
 python -m nt_cam_pulse.cli --config config.yaml prepare-lark-dashboard
@@ -279,7 +279,7 @@ python -m nt_cam_pulse.cli --config config.yaml prepare-lark-dashboard
 
 同时会检查关键字段的类型是否适合做看板，并输出仍建议手动调整的字段。
 
-如果刚升级了代码里的 Lark 字段定义，建议先强制回刷一次历史记录，把新的看板辅助字段推到飞书：
+如果刚升级了代码里的字段定义，建议先强制回刷一次历史记录，把新的看板辅助字段推到工作台：
 
 ```bash
 python -m nt_cam_pulse.cli --config config.yaml mark-lark-dirty
@@ -294,7 +294,7 @@ python -m nt_cam_pulse.cli --config config.yaml sync-lark --limit 500 --force-al
 - `是否负向`
 - `是否高严重`
 
-建议优先在 Lark 里把这些字段改成更适合图表的类型：
+建议优先在工作台里把这些字段改成更适合图表的类型：
 
 - 单选：`观点情绪`、`观点严重级别`、`一级标签`、`来源标签`、`平台`、`来源身份`
 - 单选：`主产品`、`平台大类`
@@ -307,7 +307,7 @@ python -m nt_cam_pulse.cli --config config.yaml sync-lark --limit 500 --force-al
 
 - 当前同步表是“观点粒度”，适合做问题分类、差评聚类、评论区洞察。
 - “本周热度变化”和“热门内容精选”更适合继续放在 HTML 周报里，不建议硬塞进同一张静态看板。
-- 飞书开放 API 目前更适合管理数据表、字段、视图和记录；仪表盘容器本身建议在 Lark UI 中手工搭建。
+- 当前开放 API 更适合管理数据表、字段、视图和记录；仪表盘容器本身建议在工作台 UI 中手工搭建。
 
 ### 发送每日邮件汇报
 
@@ -325,7 +325,7 @@ email_summary:
   auto_send_after_run: true
 ```
 
-如果你的流程是“先跑视频处理，再同步 Lark，最后发汇报”，建议保持 `auto_send_after_run: false`，并在最后一步单独调用 `send-email-summary`，这样邮件内容更接近最终状态。
+如果你的流程是“先跑视频处理，再同步工作台，最后发汇报”，建议保持 `auto_send_after_run: false`，并在最后一步单独调用 `send-email-summary`，这样邮件内容更接近最终状态。
 
 只做 SMTP 连接和登录检查，不真正发信：
 
@@ -363,7 +363,7 @@ python -m nt_cam_pulse.cli --config config.yaml weekly-email --end-date 2026-04-
 
 这份周报会优先参考 `view_count / like_count / comment_count / score` 等互动数据做“热门内容”排序，缺失时回退到发布时间。
 
-### 循环同步飞书（近实时）
+### 循环同步工作台（近实时）
 
 ```bash
 python -m nt_cam_pulse.cli --config config.yaml sync-lark-loop --interval 60 --limit 200
@@ -388,7 +388,7 @@ python -m nt_cam_pulse.cli --config config.yaml backfill --date 2026-03-31 --lim
 python -m nt_cam_pulse.cli --config config.yaml retag --limit 5
 ```
 
-全量重分析并强制回写 Lark（包含已同步旧记录）：
+全量重分析并强制回写工作台（包含已同步旧记录）：
 
 ```bash
 python -m nt_cam_pulse.cli --config config.yaml retag --all --sync-lark --sync-batch-limit 200
@@ -421,7 +421,7 @@ python -m nt_cam_pulse.cli --config config.yaml video-process --id 123
 
 先把链接放到固定文件（已创建）：
 
-- `/Users/travis.zhao/nt_cam_pulse/reports/video-links.txt`
+- `./reports/video-links.txt`
 
 单条导入：
 
