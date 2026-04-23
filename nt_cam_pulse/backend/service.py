@@ -11,6 +11,8 @@ from ..source_profile import SOURCE_LABELS
 from ..storage import FeedbackRepository
 from ..utils import clean_content_text, is_summary_redundant, is_video_url, load_json, truncate
 
+_EXPLICIT_VIDEO_FLAG_SOURCES = {"x_api", "x_twscrape", "x_snscrape"}
+
 
 def build_summary_payload(
     repository: FeedbackRepository,
@@ -135,7 +137,7 @@ def build_summary_payload(
             "published_at": row["published_at"],
             "summary": _display_summary(row["title"], row["summary"], row["content"]),
             "camera_related": int(row["camera_related"] or 0) == 1,
-            "is_video": is_video_url(row["url"]),
+            "is_video": _row_is_video(row),
             "sentiment": row["sentiment"] or "neutral",
             "source_actor_type": _source_role_label(row["source_actor_type"]),
             "media_type": _media_type_of_row(row),
@@ -193,6 +195,84 @@ def build_summary_payload(
         "cases": cases,
         "latest_items": latest_items,
         "trend": trend,
+    }
+
+
+def build_competitor_video_payload(
+    repository: FeedbackRepository,
+    start_date: date,
+    end_date: date,
+    limit: int = 30,
+) -> dict:
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    rows = repository.fetch_by_published_date_range(
+        start_date=start_date,
+        end_date=end_date,
+        camera_only=None,
+    )
+    competitor_rows = [row for row in rows if _competitor_meta(row)]
+    competitor_rows.sort(key=lambda item: item["published_at"], reverse=True)
+
+    platform_counter: Counter[str] = Counter()
+    brand_counter: Counter[str] = Counter()
+    video_type_counter: Counter[str] = Counter()
+    focus_counter: Counter[str] = Counter()
+    model_counter: Counter[str] = Counter()
+
+    items: list[dict[str, Any]] = []
+    for row in competitor_rows[: max(1, limit)]:
+        meta = _competitor_meta(row)
+        platform = clean_content_text(meta.get("platform", "")) or "unknown"
+        brand = clean_content_text(meta.get("brand", "")) or clean_content_text(str(row["source_section"] or ""))
+        video_type = clean_content_text(meta.get("video_type", "")) or "general"
+        focus_tags = [clean_content_text(tag) for tag in meta.get("focus_tags", []) if clean_content_text(tag)]
+        target = clean_content_text(meta.get("target", ""))
+
+        platform_counter[platform] += 1
+        if brand:
+            brand_counter[brand] += 1
+        if video_type:
+            video_type_counter[video_type] += 1
+        if target:
+            model_counter[target] += 1
+        for tag in focus_tags:
+            focus_counter[tag] += 1
+
+        items.append(
+            {
+                "id": int(row["id"]),
+                "title": row["title"],
+                "url": row["url"],
+                "published_at": row["published_at"],
+                "source": row["source_section"] or row["source"],
+                "author": clean_content_text(row["author"] or ""),
+                "summary": _display_summary(row["title"], row["summary"], row["content"]),
+                "target": target,
+                "brand": brand,
+                "compare_to": clean_content_text(meta.get("compare_to", "")),
+                "platform": platform,
+                "intent": clean_content_text(meta.get("intent", "")),
+                "video_type": video_type,
+                "focus_tags": focus_tags,
+                "sentiment": row["sentiment"] or "neutral",
+                "severity": row["severity"] or "low",
+                "domain_subtags": load_json(row["domain_subtags_json"], []),
+                "product_tags": load_json(row["product_tags"], []),
+                "video_analysis_status": _video_analysis_status(row),
+            }
+        )
+
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "total": len(competitor_rows),
+        "platforms": [{"name": name, "count": count} for name, count in platform_counter.most_common()],
+        "brands": [{"name": name, "count": count} for name, count in brand_counter.most_common()],
+        "models": [{"name": name, "count": count} for name, count in model_counter.most_common(12)],
+        "video_types": [{"name": name, "count": count} for name, count in video_type_counter.most_common()],
+        "focus_tags": [{"name": name, "count": count} for name, count in focus_counter.most_common(12)],
+        "items": items,
     }
 
 
@@ -267,8 +347,23 @@ def _video_analysis_output_file(row: Any) -> str:
     return str(video_analysis.get("output_file", "")).strip()
 
 
-def _is_tracked_video_row(row: Any) -> bool:
+def _row_is_video(row: Any) -> bool:
+    source = str(row["source"] or "").strip().lower()
+    if source in _EXPLICIT_VIDEO_FLAG_SOURCES:
+        return int(row["video_candidate"] or 0) == 1
     return int(row["video_candidate"] or 0) == 1 or is_video_url(str(row["url"] or ""))
+
+
+def _is_tracked_video_row(row: Any) -> bool:
+    return _row_is_video(row)
+
+
+def _competitor_meta(row: Any) -> dict[str, Any]:
+    extra = load_json(row["extra_json"], {})
+    if not isinstance(extra, dict):
+        return {}
+    raw = extra.get("competitor_video")
+    return raw if isinstance(raw, dict) else {}
 
 
 def _evaluation_counts_for_row(row: Any) -> tuple[int, int, int]:
@@ -292,11 +387,13 @@ def _evaluation_counts_for_row(row: Any) -> tuple[int, int, int]:
 def _media_type_of_row(row: Any) -> str:
     url = str(row["url"] or "").lower()
     source = str(row["source"] or "").lower()
+    extra = load_json(row["extra_json"], {})
+    record_type = str(extra.get("record_type", "")).strip().lower() if isinstance(extra, dict) else ""
     if _is_tracked_video_row(row):
         if any(token in url for token in ("/shorts/", "shorts/", "tiktok.com", "douyin.com", "instagram.com/reel/")):
             return "短视频"
         return "长视频"
-    if source == "reddit" or "/comments/" in url:
+    if source == "reddit" or "/comments/" in url or record_type in {"comment", "reply"}:
         return "评论"
     if any(url.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg")):
         return "图片"
@@ -311,19 +408,23 @@ def _trend_from_rows(rows: list[Any], start_date: date, end_date: date) -> list[
             continue
         item = bucket.setdefault(
             day,
-            {"total": 0, "positive_total": 0, "neutral_total": 0, "negative_total": 0},
+            {"total": 0, "positive_total": 0, "neutral_total": 0, "negative_total": 0, "duration_total_seconds": 0},
         )
         item["total"] += 1
         positive_total, neutral_total, negative_total = _evaluation_counts_for_row(row)
         item["positive_total"] += positive_total
         item["neutral_total"] += neutral_total
         item["negative_total"] += negative_total
+        item["duration_total_seconds"] += _video_duration_seconds(row)
 
     trend: list[dict[str, int | str]] = []
     current = start_date
     while current <= end_date:
         day_key = current.isoformat()
-        values = bucket.get(day_key, {"total": 0, "positive_total": 0, "neutral_total": 0, "negative_total": 0})
+        values = bucket.get(
+            day_key,
+            {"total": 0, "positive_total": 0, "neutral_total": 0, "negative_total": 0, "duration_total_seconds": 0},
+        )
         trend.append(
             {
                 "report_date": day_key,
@@ -331,10 +432,47 @@ def _trend_from_rows(rows: list[Any], start_date: date, end_date: date) -> list[
                 "positive_total": int(values["positive_total"]),
                 "neutral_total": int(values["neutral_total"]),
                 "negative_total": int(values["negative_total"]),
+                "duration_total_seconds": int(values["duration_total_seconds"]),
             }
         )
         current += timedelta(days=1)
     return trend
+
+
+def _video_duration_seconds(row: Any) -> int:
+    extra = load_json(row["extra_json"], {})
+    if not isinstance(extra, dict):
+        return 0
+    raw = extra.get("duration")
+    if raw is None:
+        return 0
+    if isinstance(raw, (int, float)):
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            return 0
+    text = clean_content_text(str(raw))
+    if not text:
+        return 0
+    if text.isdigit():
+        try:
+            return max(0, int(text))
+        except ValueError:
+            return 0
+    parts = [part.strip() for part in text.split(":")]
+    if not parts or any((not part.isdigit()) for part in parts):
+        return 0
+    try:
+        values = [int(part) for part in parts]
+    except ValueError:
+        return 0
+    if len(values) == 2:
+        minutes, seconds = values
+        return max(0, minutes * 60 + seconds)
+    if len(values) == 3:
+        hours, minutes, seconds = values
+        return max(0, hours * 3600 + minutes * 60 + seconds)
+    return 0
 
 
 def build_runtime_status_payload(
@@ -366,7 +504,7 @@ def build_video_candidates_payload(
         extra = load_json(row["extra_json"], {})
         video_analysis = extra.get("video_analysis", {}) if isinstance(extra, dict) else {}
         analysis_status = video_analysis.get("status", "") if isinstance(video_analysis, dict) else ""
-        is_tracked_video = int(row["video_candidate"] or 0) == 1 or is_video_url(url)
+        is_tracked_video = _row_is_video(row)
         if not is_tracked_video:
             continue
         items.append(
@@ -413,7 +551,7 @@ def build_video_detail_payload(repository: FeedbackRepository, row_id: int) -> d
         "ai_neutral_points": _clean_point_list(load_json(row["ai_neutral_points_json"], [])),
         "ai_negative_points": _clean_point_list(load_json(row["ai_negative_points_json"], [])),
         "video_candidate": int(row["video_candidate"] or 0) == 1,
-        "is_video": is_video_url(row["url"]),
+        "is_video": _row_is_video(row),
         "video_analysis": video_analysis if isinstance(video_analysis, dict) else {},
         "youtube_comment_mining": comment_mining if isinstance(comment_mining, dict) else {},
     }
@@ -473,7 +611,7 @@ def _video_status(rows: list[Any], app_config: AppConfig | None) -> dict[str, An
             video_analysis = extra.get("video_analysis", {})
             if isinstance(video_analysis, dict):
                 status = str(video_analysis.get("status", "")).strip().lower()
-        is_tracked_video = int(row["video_candidate"] or 0) == 1 or is_video_url(url)
+        is_tracked_video = _row_is_video(row)
         if not is_tracked_video:
             continue
         total_video += 1

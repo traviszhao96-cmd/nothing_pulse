@@ -12,12 +12,19 @@
   ID, OS, Camera, Charge, Signal, Screen, Battery, PurchaseExperience, Others
 
 二级标签规则（secondary_tags）：
-- 最多 8 个，短语化，优先英文。
+- 最多 8 个，必须优先使用固定标签，不要自造近义词。
 - 必须和 primary_tag 同一领域，不要混入其他领域标签名。
 - 不要把一级标签（如 ID/OS/Camera）直接写进 secondary_tags。
-- Camera 领域优先使用：
-  TelephotoSharpness, PhotoExposure, PhotoColor, PhotoHDR, NightPhotography,
-  VideoClarity, VideoSpecs, VideoColor, VideoExposure, Usability, Preset
+- Camera 领域只能优先使用以下固定标签：
+  整体相机, 后置主摄拍照, 后置广角拍照, 后置长焦拍照, 后置人像模式,
+  后置主摄视频, 后置广角视频, 后置长焦视频,
+  前置拍照, 前置视频, 前置人像模式,
+  专业模式, 50M/高清模式, 拍照预览, 动态照片, 菜单模式,
+  三方app-效果, 相册, 软件, 不明确
+- 选择原则：
+  - 能判断镜头/场景时，优先用具体标签，不要只写“整体相机”
+  - 只要能确认属于相机体验但粒度不足，使用“整体相机”
+  - 只有完全无法判断细分方向时，才使用“不明确”
 - 其他领域可参考：
   - ID: FingerprintUnlock, FaceUnlock, UnlockSpeed, UnlockStability, BiometricsSettings
   - OS: SystemStability, UIFluency, AppCompatibility, Notification, FeatureRequest
@@ -38,12 +45,16 @@
 观点级规则（points）：
 - `points` 为数组，每个元素对应一个观点。
 - 每个观点都必须包含：`text`、`sentiment`、`primary_tag`、`secondary_tags`、`severity`。
-- `text` 建议中文总结。
+- `text` 不要只写抽象标签，必须写成 1-2 句完整观点，尽量包含具体场景、对象、问题表现或体验影响。
+- 如果是好评，要写清楚在什么使用/拍摄场景下表现好，最好点出镜头、功能或对比对象。
+- 如果是差评，要写清楚用户在什么场景遇到了什么问题、出现了什么现象、造成了什么影响。
 - `original_text` 必须是原文摘录（保持原语言，禁止翻译）。如果无法给出原文，返回空字符串 `""`。
 - 当输入内容主要为英文时，`original_text` 尽量给英文原句，并尽量直接引用输入 content/title/summary 的原文片段（不要改写成中文）。
 - 如果能定位到视频时间点，补 `timestamp_label`（如 `01:23`）和 `timestamp_seconds`（数字秒）。
 - `secondary_tags` 必须与该观点的 `primary_tag` 同领域，不要跨领域混用。
 - `secondary_tags` 不要重复写一级标签名本身。
+- `positives` / `neutrals` / `negatives` 数组中的每一条，也要使用这种“完整观点”写法，不要只返回“夜景不错”“视频较差”这类短语。
+- 如果输入里包含 `video_analysis_summary` / `video_analysis_positives` / `video_analysis_negatives`，说明这些是从视频内容中已经提炼出的观察点；请综合这些信息再输出观点，不要忽略。
 
 情绪规则（sentiment）：
 - 只能是 positive / neutral / negative

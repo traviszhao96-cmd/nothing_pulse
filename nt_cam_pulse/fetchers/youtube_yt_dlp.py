@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from datetime import datetime, timezone
 
 from ..models import FeedbackItem
@@ -24,9 +25,22 @@ class YouTubeYtDlpCollector(BaseCollector):
         since_utc = since.astimezone(timezone.utc)
         items: list[FeedbackItem] = []
         seen_ids: set[str] = set()
-        for query in queries:
+        total_queries = len(queries)
+        for index, query in enumerate(queries, start=1):
+            print(
+                f"[youtube_yt_dlp] query {index}/{total_queries} start limit={limit} timeout={timeout}s q={query}",
+                flush=True,
+            )
+            started_at = time.monotonic()
             completed = self._run_yt_dlp(executable=executable, query=query, limit=limit, timeout=timeout)
-            for raw_line in (completed.stdout or "").splitlines():
+            raw_lines = [line for line in (completed.stdout or "").splitlines() if line.strip()]
+            print(
+                f"[youtube_yt_dlp] query {index}/{total_queries} done elapsed={time.monotonic() - started_at:.2f}s "
+                f"returncode={completed.returncode} raw_results={len(raw_lines)}",
+                flush=True,
+            )
+            accepted_before = len(items)
+            for raw_line in raw_lines:
                 line = raw_line.strip()
                 if not line:
                     continue
@@ -47,6 +61,10 @@ class YouTubeYtDlpCollector(BaseCollector):
                     continue
                 seen_ids.add(item.source_item_id)
                 items.append(item)
+            print(
+                f"[youtube_yt_dlp] query {index}/{total_queries} accepted={len(items) - accepted_before} cumulative={len(items)}",
+                flush=True,
+            )
         return items
 
     def _run_yt_dlp(self, executable: str, query: str, limit: int, timeout: int) -> subprocess.CompletedProcess:

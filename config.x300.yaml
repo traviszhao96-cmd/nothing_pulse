@@ -1,0 +1,159 @@
+database_path: ./data/feedback_x300.db
+report_dir: ./reports/x300
+lookback_hours: 720
+camera_filter_mode: review
+
+camera_keywords:
+  - camera
+  - photo
+  - photography
+  - imaging
+  - image
+  - video
+  - lens
+  - sensor
+  - portrait
+  - zoom
+  - focus
+  - autofocus
+  - night mode
+  - stabilization
+  - 相机
+  - 影像
+  - 拍照
+  - 录像
+  - 视频
+  - 人像
+  - 长焦
+  - 超广角
+  - 夜景
+  - 对焦
+  - 防抖
+
+camera_categories:
+  画质: [画质, camera, cameras, image, imaging, periscope, triple camera, blurry, 模糊, sharpness, 噪点, 解析力]
+  对焦: [对焦, focus, autofocus, 跑焦]
+  曝光: [曝光, exposure, 过曝, 欠曝, 动态范围, hdr]
+  夜景: [夜景, night mode, low light, 暗光]
+  人像: [人像, portrait, bokeh]
+  视频: [视频, video, 录像, fps]
+  防抖: [防抖, stabilization, eis, ois]
+  性能发热: [发热, heating, lag, 卡顿, 闪退]
+  功能建议: [建议, 希望, wishlist, feature]
+
+product_keywords:
+  - vivo x300
+  - vivo x300 pro
+  - vivo x300 ultra
+  - x300
+  - x300 pro
+  - x300 ultra
+
+dedupe:
+  jaccard_threshold: 0.9
+  lookback_days: 14
+
+schedule:
+  timezone: Asia/Shanghai
+  hour: 0
+  minute: 0
+
+sources:
+  nothing_community:
+    enabled: false
+  google_news:
+    enabled: false
+  custom_rss:
+    enabled: false
+  youtube:
+    enabled: false
+  youtube_yt_dlp:
+    enabled: false
+  bilibili:
+    enabled: true
+    queries:
+      - "x300ultra"
+      - "vivo x300ultra"
+      - "vivo x300 ultra 影像评测"
+      - "vivo x300 ultra 开箱"
+      - "vivo x300 ultra 对比"
+      - "vivo x300 pro"
+    expand_query_variants: true
+    limit: 60
+    page_size: 20
+    max_pages: 3
+    orders: [totalrank, click, pubdate]
+    timeout_seconds: 30
+    include_keywords: [x300, x300pro, x300ultra, x300 ultra, vivo, 相机, 影像, 拍照, 视频, 对比, 样张, 长焦, 夜景, 人像, 开箱, 评测]
+  x_twscrape:
+    enabled: false
+  x_snscrape:
+    enabled: false
+  instagram_instaloader:
+    enabled: false
+  reddit:
+    enabled: false
+  reddit_snscrape:
+    enabled: false
+  mock_file:
+    enabled: false
+
+local_ai:
+  enabled: true
+  base_url: https://api.deepseek.com/v1
+  api_key: sk-be97a88951124cb78167f2617318d00f
+  model: deepseek-chat
+  temperature: 0.2
+  max_tokens: 8192
+  timeout_seconds: 90
+  retries: 1
+  prompt_path: ./prompts/deepseek_tagging_v2.md
+
+video_processing:
+  enabled: true
+  videosummary_python: /Users/travis.zhao/videosummary/venv/bin/python
+  videosummary_script: /Users/travis.zhao/videosummary/transcribe.py
+  prompt_name: camera_feedback
+  model_size: tiny
+  timeout_seconds: 1800
+  max_items_per_run: 12
+  nightly_enabled: false
+  nightly_hour: 0
+  nightly_minute: 30
+  nightly_timezone: Asia/Shanghai
+  comment_mining_enabled: false
+  comment_newest_limit: 200
+  comment_top_limit: 80
+  comment_timeout_seconds: 180
+  comment_ai_batch_size: 20
+  comment_ai_max_candidates: 120
+  comment_ai_max_p3: 60
+  comment_ai_max_p2_negative: 30
+  comment_max_points: 20
+
+lark:
+  enabled: false
+  base_url: https://open.larksuite.com
+  app_id: ${LARK_APP_ID}
+  app_secret: ${LARK_APP_SECRET}
+  bitable_app_token: ${LARK_BITABLE_APP_TOKEN}
+  bitable_table_id: ${LARK_BITABLE_TABLE_ID}
+  only_sync_new_records: true
+
+email_summary:
+  enabled: true
+  auto_send_after_run: false
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  smtp_username: ${EMAIL_SMTP_USERNAME}
+  smtp_password: ${EMAIL_SMTP_PASSWORD}
+  from_addr: ${EMAIL_FROM_ADDR}
+  to_addrs:
+    - travis.zhao@nothing.tech
+    - lia.ye@nothing.tech
+    - alex.huang@nothing.tech
+    - riley.tang@nothing.tech
+    - tiger.xu_intern@nothing.tech
+  use_tls: true
+  use_ssl: false
+  subject_prefix: "[X300 Camera Pulse]"

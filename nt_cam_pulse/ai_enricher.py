@@ -21,20 +21,27 @@ DEFAULT_PROMPT = """你是手机相机用户反馈分析助手。请基于输入
 3) source_role 只能是 real_user / official_kol / core_koc / unknown。
 4) primary_tag 一级标签只能从以下枚举里选：
    ID / OS / Camera / Charge / Signal / Screen / Battery / PurchaseExperience / Others
-5) secondary_tags 为二级标签数组，最多 8 个。优先英文短语，允许必要时中文专业词。
-6) Camera 领域二级标签优先使用：
-   TelephotoSharpness, PhotoExposure, PhotoColor, PhotoHDR, NightPhotography,
-   VideoClarity, VideoSpecs, VideoColor, VideoExposure, Usability, Preset。
+5) secondary_tags 为二级标签数组，最多 8 个，优先使用固定标签，不要自造同义词。
+6) Camera 领域二级标签只能优先从以下标签中选择：
+   整体相机, 后置主摄拍照, 后置广角拍照, 后置长焦拍照, 后置人像模式,
+   后置主摄视频, 后置广角视频, 后置长焦视频,
+   前置拍照, 前置视频, 前置人像模式,
+   专业模式, 50M/高清模式, 拍照预览, 动态照片, 菜单模式,
+   三方app-效果, 相册, 软件, 不明确。
+   如果信息不足但能确认是相机体验，优先用“整体相机”；只有完全无法判断时才用“不明确”。
 7) severity 只能是 high / medium / low：
    - high: 严重体验/功能 bug（无法使用、严重效果异常、崩溃、关键能力失效）
    - medium: 功能缺失、明确痛点、频繁影响体验
    - low: 一般建议、轻微优化项
    若为负面观点且措辞强烈，可上调一级；若偏建议型，可下调。
-8) positives / neutrals / negatives 分别提取 0-4 条关键观点。
+8) positives / neutrals / negatives 分别提取 0-6 条关键观点，优先保留讨论度高、信息量高的内容。
 9) 如果是视频链接或文本不足以判断细节，请把 needs_video_transcript 设为 true。
 10) 必须输出 points 数组：每个观点都要给出完整标签（sentiment / primary_tag / secondary_tags / severity）。
-11) points[].text 建议中文总结；points[].original_text 必须是原文摘录且保持原语言，禁止翻译。拿不到就返回空字符串。
-12) 若输入内容主要是英文，points[].original_text 应优先给英文原句，尽量直接引用输入文本中的片段。
+11) points[].text 不要只写抽象标签，必须写成 1-2 句完整观点，尽量包含具体场景、对象、问题表现或体验影响；若是好评，要写清楚在什么使用/拍摄场景下表现好；若是差评，要写清楚用户在什么场景遇到了什么问题、造成了什么影响。
+12) points[].original_text 必须是原文摘录且保持原语言，禁止翻译。拿不到就返回空字符串。
+13) 若输入内容主要是英文，points[].original_text 应优先给英文原句，尽量直接引用输入文本中的片段。
+14) positives / neutrals / negatives 里的每一条，也要复用这种“完整观点”写法，不要只返回“续航不错”“视频一般”这类短语。
+15) 如果输入里包含 video_analysis_summary / video_analysis_positives / video_analysis_negatives，说明这些是视频内容里已经提炼出的观察点；请综合这些信息再输出观点，不要忽略。
 
 返回 JSON schema:
 {
@@ -137,7 +144,12 @@ def apply_structured_analysis(item: FeedbackItem, data: dict[str, Any]) -> None:
     else:
         # Avoid carrying stale structured points from previous runs.
         item.extra.pop("ai_structured_points", None)
-        sub_tags = LocalAIEnricher._string_list(data.get("secondary_tags", data.get("sub_tags")), limit=8)
+        sub_tags = normalize_secondary_tags_for_primary(
+            primary_tag=primary_tag,
+            raw_tags=data.get("secondary_tags", data.get("sub_tags")),
+            text=item.summary or item.content or item.title,
+            limit=8,
+        )
         if sub_tags:
             item.domain_subtags = sub_tags
 
@@ -194,6 +206,61 @@ PRIMARY_TAG_ALIASES = {
     "购买体验": "PurchaseExperience",
 }
 
+CAMERA_CANONICAL_SECONDARY_TAGS = {
+    "整体相机",
+    "后置主摄拍照",
+    "后置广角拍照",
+    "后置长焦拍照",
+    "后置人像模式",
+    "后置主摄视频",
+    "后置广角视频",
+    "后置长焦视频",
+    "前置拍照",
+    "前置视频",
+    "前置人像模式",
+    "专业模式",
+    "50M/高清模式",
+    "拍照预览",
+    "动态照片",
+    "菜单模式",
+    "三方app-效果",
+    "相册",
+    "软件",
+    "不明确",
+}
+
+CAMERA_SECONDARY_TAG_ALIASES = {
+    "telephotosharpness": "后置长焦拍照",
+    "telephoto": "后置长焦拍照",
+    "periscope": "后置长焦拍照",
+    "zoom": "后置长焦拍照",
+    "photoexposure": "后置主摄拍照",
+    "photocolor": "后置主摄拍照",
+    "photohdr": "后置主摄拍照",
+    "nightphotography": "后置主摄拍照",
+    "photosharpness": "后置主摄拍照",
+    "photoquality": "后置主摄拍照",
+    "photodetail": "后置主摄拍照",
+    "photoprocessing": "软件",
+    "videoclarity": "后置主摄视频",
+    "videospecs": "后置主摄视频",
+    "videocolor": "后置主摄视频",
+    "videoexposure": "后置主摄视频",
+    "videostabilization": "后置主摄视频",
+    "usability": "软件",
+    "preset": "菜单模式",
+    "hdr处理": "后置主摄拍照",
+    "色彩表现": "后置主摄拍照",
+    "对焦速度": "后置主摄拍照",
+    "快门延迟": "后置主摄拍照",
+    "噪点": "后置主摄拍照",
+    "防抖": "后置主摄视频",
+    "低光表现": "后置主摄拍照",
+    "人像虚化": "后置人像模式",
+    "视频稳定": "后置主摄视频",
+    "算法调校": "软件",
+}
+
 
 def _normalize_primary_tag(raw: Any) -> str:
     text = normalize_text(str(raw or ""))
@@ -201,6 +268,97 @@ def _normalize_primary_tag(raw: Any) -> str:
         return ""
     key = text.replace(" ", "").replace("-", "").replace("_", "").lower()
     return PRIMARY_TAG_ALIASES.get(key, text if text in {"ID", "OS", "Camera", "Charge", "Signal", "Screen", "Battery", "PurchaseExperience", "Others"} else "Others")
+
+
+def normalize_secondary_tags_for_primary(primary_tag: Any, raw_tags: Any, text: str = "", limit: int = 8) -> list[str]:
+    values = raw_tags if isinstance(raw_tags, list) else []
+    normalized = [normalize_text(str(value)) for value in values if normalize_text(str(value))]
+    primary = _normalize_primary_tag(primary_tag)
+    if primary != "Camera":
+        seen: set[str] = set()
+        result: list[str] = []
+        primary_key = normalize_text(str(primary_tag or "")).lower()
+        for tag in normalized:
+            key = tag.lower()
+            if key == primary_key or key in seen:
+                continue
+            seen.add(key)
+            result.append(tag)
+            if len(result) >= limit:
+                break
+        return result
+
+    combined_text = normalize_text(" ".join(normalized + [text])).lower()
+    result: list[str] = []
+
+    def add(tag: str) -> None:
+        if tag not in CAMERA_CANONICAL_SECONDARY_TAGS:
+            return
+        if tag in result:
+            return
+        result.append(tag)
+
+    for raw in normalized:
+        alias_key = raw.replace(" ", "").replace("-", "").replace("_", "").lower()
+        alias = CAMERA_SECONDARY_TAG_ALIASES.get(alias_key)
+        if alias:
+            add(alias)
+
+    if any(token in combined_text for token in ("professional mode", "pro mode", "专业模式", "手动模式", "manual mode", "expert mode")):
+        add("专业模式")
+    if any(token in combined_text for token in ("50mp", "50 mp", "50m", "高清模式", "high-res", "highres", "full resolution")):
+        add("50M/高清模式")
+    if any(token in combined_text for token in ("preview", "viewfinder", "预览", "取景")):
+        add("拍照预览")
+    if any(token in combined_text for token in ("motion photo", "live photo", "动态照片", "实况照片")):
+        add("动态照片")
+    if any(token in combined_text for token in ("menu", "菜单", "mode switch", "模式切换", "preset", "滤镜预设")):
+        add("菜单模式")
+    if any(
+        token in combined_text
+        for token in ("third-party", "third party", "三方app", "第三方app", "instagram", "tiktok", "whatsapp", "snapchat", "gcam")
+    ):
+        add("三方app-效果")
+    if any(token in combined_text for token in ("gallery", "album", "相册")):
+        add("相册")
+    if any(
+        token in combined_text
+        for token in ("software", "app", "ui", "algorithm", "processing", "bug", "crash", "闪退", "卡顿", "设置", "功能入口")
+    ):
+        add("软件")
+
+    is_video = any(token in combined_text for token in ("video", "录像", "录影", "拍视频", "录制"))
+    is_front = any(token in combined_text for token in ("front", "selfie", "前置", "自拍"))
+    is_portrait = any(token in combined_text for token in ("portrait", "人像", "虚化", "bokeh"))
+    is_ultrawide = any(token in combined_text for token in ("ultrawide", "ultra wide", "wide angle", "广角", "超广角"))
+    is_tele = any(token in combined_text for token in ("telephoto", "periscope", "zoom", "长焦", "潜望"))
+
+    if is_portrait:
+        add("前置人像模式" if is_front else "后置人像模式")
+    elif is_video:
+        if is_front:
+            add("前置视频")
+        elif is_ultrawide:
+            add("后置广角视频")
+        elif is_tele:
+            add("后置长焦视频")
+        else:
+            add("后置主摄视频")
+    else:
+        if is_front:
+            add("前置拍照")
+        elif is_ultrawide:
+            add("后置广角拍照")
+        elif is_tele:
+            add("后置长焦拍照")
+        elif any(token in combined_text for token in ("photo", "拍照", "照片", "exposure", "hdr", "color", "night", "对焦", "focus", "sharp", "noise", "噪点")):
+            add("后置主摄拍照")
+
+    if not result and any(token in combined_text for token in ("camera", "相机", "拍照", "录像", "video", "photo", "镜头")):
+        add("整体相机")
+    if not result:
+        add("不明确")
+    return result[:limit]
 
 
 def _normalize_severity(raw: Any) -> str:
@@ -237,12 +395,18 @@ def _normalize_structured_points(
         text = normalize_text(str(item.get("text", "")))
         if not text:
             continue
+        primary_tag = _normalize_primary_tag(item.get("primary_tag", ""))
         point: dict[str, Any] = {
             "text": truncate(text, 220),
             "original_text": truncate(_clean_optional_text(item.get("original_text", "")), 500),
             "sentiment": _normalize_sentiment(item.get("sentiment", "")),
-            "primary_tag": _normalize_primary_tag(item.get("primary_tag", "")),
-            "secondary_tags": LocalAIEnricher._string_list(item.get("secondary_tags"), limit=8),
+            "primary_tag": primary_tag,
+            "secondary_tags": normalize_secondary_tags_for_primary(
+                primary_tag=primary_tag,
+                raw_tags=item.get("secondary_tags"),
+                text=text,
+                limit=8,
+            ),
             "severity": _normalize_severity(item.get("severity", "")) or "low",
             "severity_reason": truncate(normalize_text(str(item.get("severity_reason", ""))), 200),
         }
@@ -267,20 +431,12 @@ def _normalize_structured_points(
             point["timestamp_label"] = ts_label
         if ts_seconds is not None:
             point["timestamp_seconds"] = ts_seconds
-        # secondary_tags 不要重复 primary_tag
-        primary_key = str(point["primary_tag"]).strip().lower()
-        secondary_clean: list[str] = []
-        seen: set[str] = set()
-        for tag in point["secondary_tags"]:
-            clean = normalize_text(str(tag))
-            if not clean:
-                continue
-            key = clean.lower()
-            if key == primary_key or key in seen:
-                continue
-            seen.add(key)
-            secondary_clean.append(clean)
-        point["secondary_tags"] = secondary_clean[:8]
+        point["secondary_tags"] = normalize_secondary_tags_for_primary(
+            primary_tag=point["primary_tag"],
+            raw_tags=point["secondary_tags"],
+            text=point["text"],
+            limit=8,
+        )
         result.append(point)
         if len(result) >= 40:
             break
@@ -358,7 +514,7 @@ def _extract_point_texts(points: list[dict[str, Any]], sentiment: str, limit: in
         text = normalize_text(str(point.get("text", "")))
         if not text:
             continue
-        output.append(truncate(text, 80))
+        output.append(truncate(text, 180))
         if len(output) >= limit:
             break
     return output
@@ -442,6 +598,8 @@ class LocalAIEnricher:
 
         tries = max(1, self.config.retries + 1)
         last_error = "unknown_error"
+        saw_transport_error = False
+        saw_non_transport_error = False
         for _ in range(tries):
             try:
                 output_text = self._chat_completion(request_body)
@@ -450,9 +608,15 @@ class LocalAIEnricher:
                 return EnrichResult(ok=True)
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
+                if isinstance(exc, requests.RequestException):
+                    saw_transport_error = True
+                else:
+                    saw_non_transport_error = True
                 continue
-        self._runtime_disabled = True
-        return EnrichResult(ok=False, error=f"local_ai_unreachable: {last_error}")
+        if saw_transport_error and not saw_non_transport_error:
+            self._runtime_disabled = True
+            return EnrichResult(ok=False, error=f"local_ai_unreachable: {last_error}")
+        return EnrichResult(ok=False, error=f"local_ai_failed: {last_error}")
 
     def _chat_completion(self, body: dict[str, Any]) -> str:
         base_url = self.config.base_url.rstrip("/")
@@ -493,7 +657,7 @@ class LocalAIEnricher:
             text = normalize_text(str(item))
             if not text:
                 continue
-            results.append(text[:80])
+            results.append(truncate(text, 180))
             if len(results) >= limit:
                 break
         return results
@@ -501,6 +665,7 @@ class LocalAIEnricher:
     @staticmethod
     def _build_payload_text(item: FeedbackItem) -> str:
         content_lang = detect_language(item.content or "")
+        video_context = _video_analysis_context(item.extra)
         lines = [
             f"source={item.source}",
             f"source_section={item.source_section or ''}",
@@ -512,6 +677,8 @@ class LocalAIEnricher:
             f"summary={item.summary or ''}",
             "content=" + truncate(item.content or "", 3000),
         ]
+        if video_context:
+            lines.extend(video_context)
         return "\n".join(lines)
 
     @staticmethod
@@ -526,3 +693,51 @@ class LocalAIEnricher:
                         text += "\n\n{feedback_text}"
                     return text
         return DEFAULT_PROMPT
+
+
+def _video_analysis_context(extra: Any) -> list[str]:
+    if not isinstance(extra, dict):
+        return []
+    video_analysis = extra.get("video_analysis")
+    if not isinstance(video_analysis, dict):
+        return []
+    output_file = str(video_analysis.get("output_file", "")).strip()
+    if not output_file:
+        return []
+
+    payload = _load_video_analysis_payload(output_file)
+    if not payload:
+        return []
+
+    lines: list[str] = []
+    summary = normalize_text(str(payload.get("summary", "")))
+    positives = [normalize_text(str(value)) for value in list(payload.get("positives") or []) if normalize_text(str(value))]
+    negatives = [normalize_text(str(value)) for value in list(payload.get("negatives") or []) if normalize_text(str(value))]
+    if summary:
+        lines.append("video_analysis_summary=" + truncate(summary, 500))
+    if positives:
+        lines.append("video_analysis_positives=" + " | ".join(truncate(value, 220) for value in positives[:6]))
+    if negatives:
+        lines.append("video_analysis_negatives=" + " | ".join(truncate(value, 220) for value in negatives[:6]))
+    return lines
+
+
+def _load_video_analysis_payload(path_text: str) -> dict[str, Any]:
+    path = str(path_text or "").strip()
+    if not path:
+        return {}
+    file_path = Path(path).expanduser()
+    if not file_path.exists():
+        return {}
+    try:
+        raw_text = file_path.read_text(encoding="utf-8")
+        payload = extract_json_object(raw_text)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        "summary": payload.get("summary", ""),
+        "positives": list(payload.get("positives") or []),
+        "negatives": list(payload.get("negatives") or []),
+    }

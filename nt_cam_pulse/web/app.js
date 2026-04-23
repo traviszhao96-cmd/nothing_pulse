@@ -11,6 +11,10 @@ const domainBarsNode = document.getElementById("domainBars");
 const trendChartNode = document.getElementById("trendChart");
 const keywordCloudNode = document.getElementById("keywordCloud");
 const subTagCloudNode = document.getElementById("subTagCloud");
+const competitorBrandBarsNode = document.getElementById("competitorBrandBars");
+const competitorVideoTypeBarsNode = document.getElementById("competitorVideoTypeBars");
+const competitorFocusCloudNode = document.getElementById("competitorFocusCloud");
+const competitorVideoListNode = document.getElementById("competitorVideoList");
 const caseListNode = document.getElementById("caseList");
 const detailListNode = document.getElementById("detailList");
 const positiveInsightsNode = document.getElementById("positiveInsights");
@@ -131,6 +135,7 @@ async function refreshSummary() {
     renderDetails(summary.latest_items || []);
     renderInsights(summary.sentiment_insights || {});
     renderTrend(summary.trend || []);
+    await refreshCompetitorVideos(selectedStartDate, selectedEndDate);
     await refreshRuntimeStatus(false);
   } catch (error) {
     console.error(error);
@@ -148,6 +153,7 @@ async function refreshSummary() {
     renderDetails([]);
     renderInsights({});
     renderTrend([]);
+    renderCompetitorVideos({ items: [], brands: [], video_types: [], focus_tags: [] });
     renderRuntimeStatusFallback("状态接口不可用");
   }
 }
@@ -235,6 +241,7 @@ function renderBars(container, data, colors) {
 }
 
 function renderKeywords(keywords, node = keywordCloudNode) {
+  if (!node) return;
   node.innerHTML = "";
   if (!keywords.length) {
     node.innerHTML = `<p class="empty">暂无关键词</p>`;
@@ -246,6 +253,86 @@ function renderKeywords(keywords, node = keywordCloudNode) {
     chip.className = "keyword-chip";
     chip.textContent = `${item.name} · ${item.count}`;
     node.appendChild(chip);
+  });
+}
+
+async function refreshCompetitorVideos(startDate, endDate) {
+  if (!competitorVideoListNode) return;
+  const response = await fetch(buildApiUrl("/api/competitor/videos", { start_date: startDate, end_date: endDate, limit: 20 }));
+  if (!response.ok) {
+    throw new Error(`load competitor videos failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  renderCompetitorVideos(payload);
+}
+
+function renderCompetitorVideos(payload) {
+  if (!competitorVideoListNode) return;
+  renderBars(competitorBrandBarsNode, payload.brands || [], ["#a34a1c", "#e39a3f"]);
+  renderBars(competitorVideoTypeBarsNode, payload.video_types || [], ["#175d8d", "#3ab1d8"]);
+  renderKeywords(payload.focus_tags || [], competitorFocusCloudNode);
+
+  competitorVideoListNode.innerHTML = "";
+  const items = payload.items || [];
+  if (!items.length) {
+    competitorVideoListNode.innerHTML = `<p class="empty">当前时间范围内暂无竞品视频</p>`;
+    return;
+  }
+
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "case-item";
+
+    const title = document.createElement("h4");
+    const anchor = document.createElement("a");
+    anchor.href = item.url;
+    anchor.target = "_blank";
+    anchor.rel = "noreferrer";
+    anchor.textContent = item.title;
+    title.appendChild(anchor);
+
+    const meta = document.createElement("p");
+    meta.className = "case-meta";
+
+    [
+      item.brand || "竞品",
+      item.target || "",
+      competitorVideoTypeText(item.video_type),
+      item.platform || "",
+      item.compare_to ? `vs ${item.compare_to}` : "",
+      formatDateTime(item.published_at),
+    ]
+      .filter(Boolean)
+      .forEach((part, index) => {
+        if (index > 0) {
+          meta.append(" · ");
+        }
+        meta.append(part);
+      });
+
+    const summary = document.createElement("p");
+    summary.className = "detail-summary";
+    summary.textContent = cleanDisplayText(item.summary || "") || "暂无摘要";
+
+    const tags = document.createElement("p");
+    tags.className = "detail-analysis-meta";
+    const focusTags = (item.focus_tags || []).map((tag) => cleanDisplayText(tag)).filter(Boolean);
+    const domainTags = (item.domain_subtags || []).map((tag) => cleanDisplayText(tag)).filter(Boolean);
+    tags.textContent = [
+      focusTags.length ? `焦点：${focusTags.join(" / ")}` : "",
+      domainTags.length ? `归类：${domainTags.join(" / ")}` : "",
+      item.author ? `作者：${cleanDisplayText(item.author)}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    card.appendChild(title);
+    card.appendChild(meta);
+    card.appendChild(summary);
+    if (tags.textContent) {
+      card.appendChild(tags);
+    }
+    competitorVideoListNode.appendChild(card);
   });
 }
 
@@ -442,6 +529,16 @@ function buildVideoActions(item) {
   }
 
   return line;
+}
+
+function competitorVideoTypeText(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "comparison") return "对比";
+  if (key === "camera_test") return "相机测试";
+  if (key === "review") return "评测";
+  if (key === "tips") return "教程";
+  if (key === "general") return "泛内容";
+  return key || "未分类";
 }
 
 function renderTrend(trend) {
