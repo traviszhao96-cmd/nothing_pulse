@@ -60,8 +60,18 @@ def handle_api_get(
 
     if path == "/api/status":
         raw_date = (query.get("date") or [None])[0]
-        target_date = parse_report_date(raw_date) or resolve_default_date(repository, default_date)
-        return 200, build_runtime_status_payload(repository, target_date, app_config)
+        raw_start_date = (query.get("start_date") or [None])[0]
+        raw_end_date = (query.get("end_date") or [None])[0]
+        start_date = parse_report_date(raw_start_date)
+        end_date = parse_report_date(raw_end_date)
+        target_date = parse_report_date(raw_date) or end_date or resolve_default_date(repository, default_date)
+        return 200, build_runtime_status_payload(
+            repository,
+            target_date,
+            app_config,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     if path == "/api/video/candidates":
         raw_date = (query.get("date") or [None])[0]

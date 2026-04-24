@@ -1,4 +1,4 @@
-const runtimeConfig = window.NT_CAM_PULSE_CONFIG || {};
+const runtimeConfig = window.MEDIA_PULSE_CONFIG || window.NT_CAM_PULSE_CONFIG || {};
 const apiBaseUrl = String(runtimeConfig.apiBaseUrl || "").replace(/\/+$/, "");
 
 const headerNode = document.getElementById("videoDetailHeader");

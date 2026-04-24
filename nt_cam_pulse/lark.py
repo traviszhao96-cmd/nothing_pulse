@@ -1157,7 +1157,7 @@ class LarkBitableClient:
             return "dy"
         if "reddit" in blob:
             return "rd"
-        if "nothing.community" in blob:
+        if "community." in blob or "/community" in blob:
             return "nc"
         if "google_news" in blob or "rss" in blob:
             return "nw"
@@ -1762,8 +1762,8 @@ class LarkBitableClient:
             return "X"
         if source.startswith("instagram"):
             return "Instagram"
-        if source.startswith("nothing_community"):
-            return "Nothing Community"
+        if source.startswith("brand_community") or source.endswith("_community"):
+            return "品牌社区"
         if source.startswith("custom_rss"):
             return "RSS"
         url = clean_content_text(raw_url).lower()
@@ -1796,7 +1796,7 @@ class LarkBitableClient:
             return "视频平台"
         if "youtu" in url or "bilibili.com" in url or "b23.tv" in url or "instagram.com" in url:
             return "视频平台"
-        if display in {"Reddit", "Nothing Community"}:
+        if display in {"Reddit", "品牌社区"}:
             return "社区论坛"
         if "reddit.com" in url or "community" in source:
             return "社区论坛"

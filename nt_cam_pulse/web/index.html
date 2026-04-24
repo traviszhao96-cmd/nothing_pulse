@@ -3,137 +3,225 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nothing Camera Pulse Dashboard</title>
+    <title>Media Pulse Dashboard</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="ambient ambient-left"></div>
-    <div class="ambient ambient-right"></div>
     <main class="app-shell">
-      <header class="hero reveal">
-        <div>
-          <p class="kicker">Nothing Camera Pulse</p>
-          <h1>相机反馈总览</h1>
-          <p class="subtitle">支持全量反馈回看与相机关联筛选的每日趋势与反馈明细分析</p>
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="kicker">Media Pulse</p>
+          <h1>反馈处理中台</h1>
+          <p class="subtitle">统一查看抓取、分析、同步、报告与竞品检索状态，并回看当前时间范围内的核心信号。</p>
         </div>
         <div class="controls">
           <div class="controls-grid">
-            <section class="control-col">
-              <p class="control-col-title">日期</p>
-              <label for="startDate">开始日期</label>
+            <label class="field">
+              <span>开始日期</span>
               <input id="startDate" type="date" />
-              <label for="endDate">结束日期</label>
+            </label>
+            <label class="field">
+              <span>结束日期</span>
               <input id="endDate" type="date" />
-            </section>
-            <section class="control-col">
-              <p class="control-col-title">查看与刷新</p>
-              <label for="scopeSelect">查看范围</label>
+            </label>
+            <label class="field">
+              <span>查看范围</span>
               <select id="scopeSelect">
                 <option value="camera">仅相机相关</option>
                 <option value="all">全部反馈</option>
               </select>
-              <button id="refreshButton" type="button">刷新数据</button>
-            </section>
+            </label>
+            <button id="refreshButton" type="button" class="primary-btn">刷新数据</button>
           </div>
         </div>
       </header>
 
-      <section id="metrics" class="metrics reveal"></section>
+      <nav class="tab-nav" id="topTabs">
+        <button class="tab-btn active" data-tab="overview" type="button">总览</button>
+        <button class="tab-btn" data-tab="tasks" type="button">任务状态</button>
+        <button class="tab-btn" data-tab="insights" type="button">信号洞察</button>
+        <button class="tab-btn" data-tab="competitor" type="button">竞品视频</button>
+        <button class="tab-btn" data-tab="details" type="button">反馈明细</button>
+      </nav>
 
-      <section class="panel reveal">
-        <div class="panel-title">运行状态与视频处理</div>
-        <div id="runtimeStatus" class="runtime-status"></div>
-        <div class="runtime-actions">
-          <button id="refreshStatusButton" type="button">刷新状态</button>
-          <button id="syncLarkButton" type="button">同步 Lark（前 200 条）</button>
-          <button id="exportVideoTasksButton" type="button">导出视频任务</button>
-          <button id="runVideoProcessButton" type="button">手动分析视频（前 5 条）</button>
-        </div>
-        <p id="runtimeActionResult" class="runtime-result"></p>
-      </section>
-
-      <section class="grid-layout">
-        <article class="panel reveal">
-          <div class="panel-title">问题类型分布</div>
-          <div id="categoryBars" class="bars"></div>
-        </article>
-
-        <article class="panel reveal">
-          <div class="panel-title">情绪分布</div>
-          <div id="sentimentBars" class="bars"></div>
-        </article>
-
-        <article class="panel reveal">
-          <div class="panel-title">来源身份分布</div>
-          <div id="originBars" class="bars"></div>
-        </article>
-
-        <article class="panel reveal">
-          <div class="panel-title">内容类型分布</div>
-          <div id="mediaBars" class="bars"></div>
-        </article>
-
-        <article class="panel reveal">
-          <div class="panel-title">领域分布</div>
-          <div id="domainBars" class="bars"></div>
-        </article>
-
-        <article class="panel reveal wide">
-          <div class="panel-title">趋势（总反馈量 / 负面反馈量）</div>
-          <div id="trendChart" class="trend-chart"></div>
-        </article>
-
-        <article class="panel reveal wide">
-          <div class="panel-title">高频关键词</div>
-          <div id="keywordCloud" class="keyword-cloud"></div>
-        </article>
-
-        <article class="panel reveal wide">
-          <div class="panel-title">二级标签 Top</div>
-          <div id="subTagCloud" class="keyword-cloud"></div>
-        </article>
-      </section>
-
-      <section class="panel reveal">
-        <div class="panel-title">AI 观点提炼</div>
-        <div class="insight-grid">
-          <div>
-            <h4>好评</h4>
-            <ul id="positiveInsights" class="insight-list"></ul>
-          </div>
-          <div>
-            <h4>中性</h4>
-            <ul id="neutralInsights" class="insight-list"></ul>
-          </div>
-          <div>
-            <h4>差评</h4>
-            <ul id="negativeInsights" class="insight-list"></ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel reveal">
-        <div class="panel-title">竞品视频检索结果</div>
-        <div class="grid-layout">
+      <section id="overviewTab" class="tab-panel active">
+        <section id="metrics" class="metrics"></section>
+        <section class="grid-layout">
+          <article class="panel wide">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Trend</p>
+                <h3>时间趋势</h3>
+              </div>
+            </div>
+            <div id="trendChart" class="trend-chart"></div>
+          </article>
           <article class="panel">
-            <div class="panel-title">竞品品牌</div>
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Distribution</p>
+                <h3>问题类型</h3>
+              </div>
+            </div>
+            <div id="categoryBars" class="bars"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Distribution</p>
+                <h3>情绪分布</h3>
+              </div>
+            </div>
+            <div id="sentimentBars" class="bars"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Distribution</p>
+                <h3>来源身份</h3>
+              </div>
+            </div>
+            <div id="originBars" class="bars"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Distribution</p>
+                <h3>内容类型</h3>
+              </div>
+            </div>
+            <div id="mediaBars" class="bars"></div>
+          </article>
+        </section>
+      </section>
+
+      <section id="tasksTab" class="tab-panel">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Runtime</p>
+              <h3>系统状态</h3>
+            </div>
+          </div>
+          <div id="runtimeStatus" class="runtime-status"></div>
+          <div class="runtime-actions">
+            <button id="refreshStatusButton" type="button">刷新状态</button>
+            <button id="syncLarkButton" type="button">同步工作台</button>
+            <button id="exportVideoTasksButton" type="button">导出视频任务</button>
+            <button id="runVideoProcessButton" type="button">手动分析视频</button>
+          </div>
+          <p id="runtimeActionResult" class="runtime-result"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Tasks</p>
+              <h3>处理任务</h3>
+            </div>
+          </div>
+          <div id="taskTabs" class="subtab-nav"></div>
+          <div id="taskPanel" class="task-panel"></div>
+        </section>
+      </section>
+
+      <section id="insightsTab" class="tab-panel">
+        <section class="grid-layout">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Keywords</p>
+                <h3>高频关键词</h3>
+              </div>
+            </div>
+            <div id="keywordCloud" class="keyword-cloud"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Tags</p>
+                <h3>二级标签</h3>
+              </div>
+            </div>
+            <div id="subTagCloud" class="keyword-cloud"></div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Insights</p>
+              <h3>AI 观点提炼</h3>
+            </div>
+          </div>
+          <div class="insight-grid">
+            <div>
+              <h4>好评</h4>
+              <ul id="positiveInsights" class="insight-list"></ul>
+            </div>
+            <div>
+              <h4>中性</h4>
+              <ul id="neutralInsights" class="insight-list"></ul>
+            </div>
+            <div>
+              <h4>差评</h4>
+              <ul id="negativeInsights" class="insight-list"></ul>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="competitorTab" class="tab-panel">
+        <section class="grid-layout">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Competitor</p>
+                <h3>竞品品牌</h3>
+              </div>
+            </div>
             <div id="competitorBrandBars" class="bars"></div>
           </article>
           <article class="panel">
-            <div class="panel-title">视频类型</div>
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Video Type</p>
+                <h3>视频类型</h3>
+              </div>
+            </div>
             <div id="competitorVideoTypeBars" class="bars"></div>
           </article>
           <article class="panel wide">
-            <div class="panel-title">焦点标签</div>
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Focus</p>
+                <h3>焦点标签</h3>
+              </div>
+            </div>
             <div id="competitorFocusCloud" class="keyword-cloud"></div>
           </article>
-        </div>
-        <div id="competitorVideoList" class="case-list"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Results</p>
+              <h3>竞品视频结果</h3>
+            </div>
+          </div>
+          <div id="competitorVideoList" class="case-list"></div>
+        </section>
       </section>
 
-      <section class="panel reveal">
-        <div class="panel-title">反馈明细（最新 30 条 + 视频分析）</div>
-        <div id="detailList" class="case-list"></div>
+      <section id="detailsTab" class="tab-panel">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Feed</p>
+              <h3>反馈明细</h3>
+            </div>
+          </div>
+          <div id="detailList" class="case-list"></div>
+        </section>
       </section>
     </main>
 

@@ -106,7 +106,7 @@ schedule:
 
 # Step 2: collectors
 sources:
-  nothing_community:
+  brand_community:
     enabled: true
     # 字段名沿用现有代码兼容；示例地址可替换成你的品牌社区
     base_url: https://community.example.com

@@ -17,7 +17,7 @@ def test_nitter_instance(instance_url, query):
             rss_url,
             params=params,
             timeout=10,
-            headers={"User-Agent": "NothingCameraPulse/1.0"}
+            headers={"User-Agent": "MediaPulse/1.0"}
         )
         print(f"  状态码: {response.status_code}")
         
@@ -54,9 +54,9 @@ def main():
     ]
     
     queries = [
-        "Nothing Phone",
-        "Nothing Phone camera",
-        "Nothing Phone 相机"
+        "Target Phone",
+        "Target Phone camera",
+        "Target Phone 相机"
     ]
     
     for query in queries:

@@ -23,7 +23,7 @@ class YouTubeSearchCollector(BaseCollector):
         language = str(self.config.get("language", "")).strip()
         order = str(self.config.get("order", "date")).strip().lower() or "date"
         include_keywords = [str(keyword).lower() for keyword in self.config.get("include_keywords", []) if keyword]
-        user_agent = str(self.config.get("user_agent", "NothingCameraPulse/1.0")).strip() or "NothingCameraPulse/1.0"
+        user_agent = str(self.config.get("user_agent", "MediaPulse/1.0")).strip() or "MediaPulse/1.0"
 
         if order not in {"date", "rating", "relevance", "title", "videoCount", "viewCount"}:
             order = "date"
@@ -146,4 +146,4 @@ class YouTubeSearchCollector(BaseCollector):
             if items:
                 joined = " OR ".join(f"\"{item}\"" for item in items)
                 return f"({joined}) camera review"
-        return "Nothing Phone camera review"
+        return "Target Phone camera review"

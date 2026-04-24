@@ -63,7 +63,7 @@ schedule:
   minute: 0
 
 sources:
-  nothing_community:
+  brand_community:
     enabled: false
   google_news:
     enabled: false
@@ -117,8 +117,8 @@ local_ai:
 
 video_processing:
   enabled: true
-  videosummary_python: /Users/travis.zhao/videosummary/venv/bin/python
-  videosummary_script: /Users/travis.zhao/videosummary/transcribe.py
+  videosummary_python: /path/to/videosummary/venv/bin/python
+  videosummary_script: /path/to/videosummary/transcribe.py
   prompt_name: camera_feedback
   model_size: tiny
   timeout_seconds: 1800
@@ -155,7 +155,7 @@ email_summary:
   smtp_password: ${EMAIL_SMTP_PASSWORD}
   from_addr: ${EMAIL_FROM_ADDR}
   to_addrs:
-    - travis.zhao@nothing.tech
+    - you@example.com
   use_tls: true
   use_ssl: false
-  subject_prefix: "[Pocket 4 Camera Pulse]"
+  subject_prefix: "[Pocket 4 Media Pulse]"

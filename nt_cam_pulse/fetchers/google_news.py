@@ -15,7 +15,7 @@ from .base import BaseCollector
 
 class GoogleNewsCollector(BaseCollector):
     def fetch(self, since: datetime) -> list[FeedbackItem]:
-        query = self.config.get("query", "\"Nothing Phone\"")
+        query = self.config.get("query", "\"Target Phone\"")
         language = self.config.get("language", "en-US")
         country = self.config.get("country", "US")
         edition = self.config.get("edition", "US:en")

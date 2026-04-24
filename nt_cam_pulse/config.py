@@ -44,8 +44,8 @@ class LocalAIConfig:
 @dataclass(slots=True)
 class VideoProcessingConfig:
     enabled: bool = False
-    videosummary_python: str = "/Users/travis.zhao/videosummary/venv/bin/python"
-    videosummary_script: str = "/Users/travis.zhao/videosummary/transcribe.py"
+    videosummary_python: str = "/path/to/videosummary/venv/bin/python"
+    videosummary_script: str = "/path/to/videosummary/transcribe.py"
     prompt_name: str = "camera_feedback"
     model_size: str = "tiny"
     timeout_seconds: int = 1800
@@ -77,7 +77,7 @@ class EmailSummaryConfig:
     to_addrs: list[str] = field(default_factory=list)
     use_tls: bool = True
     use_ssl: bool = False
-    subject_prefix: str = "[Nothing Camera Pulse]"
+    subject_prefix: str = "[Media Pulse]"
 
 
 @dataclass(slots=True)
@@ -149,13 +149,13 @@ def load_config(path: str | Path) -> AppConfig:
             videosummary_python=str(
                 video_processing_raw.get(
                     "videosummary_python",
-                    "/Users/travis.zhao/videosummary/venv/bin/python",
+                    "/path/to/videosummary/venv/bin/python",
                 )
             ).strip(),
             videosummary_script=str(
                 video_processing_raw.get(
                     "videosummary_script",
-                    "/Users/travis.zhao/videosummary/transcribe.py",
+                    "/path/to/videosummary/transcribe.py",
                 )
             ).strip(),
             prompt_name=str(video_processing_raw.get("prompt_name", "camera_feedback")).strip() or "camera_feedback",
@@ -188,8 +188,8 @@ def load_config(path: str | Path) -> AppConfig:
             to_addrs=[str(value).strip() for value in list(email_summary_raw.get("to_addrs", [])) if str(value).strip()],
             use_tls=bool(email_summary_raw.get("use_tls", True)),
             use_ssl=bool(email_summary_raw.get("use_ssl", False)),
-            subject_prefix=str(email_summary_raw.get("subject_prefix", "[Nothing Camera Pulse]")).strip()
-            or "[Nothing Camera Pulse]",
+            subject_prefix=str(email_summary_raw.get("subject_prefix", "[Media Pulse]")).strip()
+            or "[Media Pulse]",
         ),
     )
 

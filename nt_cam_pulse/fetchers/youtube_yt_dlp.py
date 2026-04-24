@@ -169,4 +169,4 @@ class YouTubeYtDlpCollector(BaseCollector):
             if items:
                 joined = " OR ".join(f"\"{item}\"" for item in items)
                 return f"({joined}) camera review"
-        return "Nothing Phone camera review"
+        return "Target Phone camera review"

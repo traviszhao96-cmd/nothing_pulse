@@ -1,4 +1,4 @@
-"""Nothing Camera Pulse: camera-only feedback ingest, classify, and report pipeline."""
+"""Media Pulse: media feedback ingest, classify, analyze, and report pipeline."""
 
 __all__ = [
     "classifier",

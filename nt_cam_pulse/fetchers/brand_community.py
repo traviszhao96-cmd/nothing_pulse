@@ -13,9 +13,9 @@ from ..utils import normalize_text, parse_datetime, truncate
 from .base import BaseCollector
 
 
-class NothingCommunityCollector(BaseCollector):
+class BrandCommunityCollector(BaseCollector):
     def fetch(self, since: datetime) -> list[FeedbackItem]:
-        base_url = self.config.get("base_url", "https://nothing.community")
+        base_url = self.config.get("base_url", "https://community.example.com")
         pages = int(self.config.get("pages", 2))
         include_keywords = [keyword.lower() for keyword in self.config.get("include_keywords", [])]
 
@@ -28,9 +28,7 @@ class NothingCommunityCollector(BaseCollector):
             for anchor in soup.select('a[href^="/d/"]'):
                 href = anchor.get("href", "")
                 title = normalize_text(anchor.get_text(" ", strip=True))
-                if not href or not title:
-                    continue
-                if href in discussion_links:
+                if not href or not title or href in discussion_links:
                     continue
                 discussion_links[href] = title
 
@@ -54,7 +52,7 @@ class NothingCommunityCollector(BaseCollector):
 
             items.append(
                 FeedbackItem(
-                    source="nothing_community",
+                    source="brand_community",
                     source_item_id=detail["source_item_id"],
                     title=detail["title"],
                     url=full_url,
@@ -62,7 +60,7 @@ class NothingCommunityCollector(BaseCollector):
                     summary=truncate(summary or content, 240),
                     published_at=published_at,
                     author=detail.get("author"),
-                    source_section="Nothing Community",
+                    source_section="品牌社区",
                     extra={"updated_at": detail.get("updated_at")},
                 )
             )
@@ -89,34 +87,32 @@ class NothingCommunityCollector(BaseCollector):
 
         source_item_id = str(schema.get("identifier") or url.rstrip("/").split("/")[-1])
         return {
+            "source_item_id": source_item_id,
             "title": title,
-            "summary": description or content,
+            "summary": description,
             "content": content,
             "author": author,
             "published_at": published_at,
-            "updated_at": updated_at.isoformat() if updated_at else None,
-            "source_item_id": source_item_id,
+            "updated_at": updated_at,
         }
 
 
+def _meta_content(soup: BeautifulSoup, property_name: str) -> str:
+    node = soup.find("meta", attrs={"property": property_name}) or soup.find("meta", attrs={"name": property_name})
+    if not node:
+        return ""
+    return str(node.get("content") or "").strip()
+
+
 def _find_discussion_schema(soup: BeautifulSoup) -> dict[str, Any]:
-    for node in soup.select('script[type="application/ld+json"]'):
-        raw = node.string or node.get_text()
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.string or script.get_text(" ", strip=True)
         if not raw:
             continue
         try:
-            data = json.loads(raw)
+            payload = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        candidates = data if isinstance(data, list) else [data]
-        for candidate in candidates:
-            if candidate.get("@type") == "DiscussionForumPosting":
-                return candidate
+        if isinstance(payload, dict) and payload.get("@type") in {"DiscussionForumPosting", "Article"}:
+            return payload
     return {}
-
-
-def _meta_content(soup: BeautifulSoup, property_name: str) -> str | None:
-    node = soup.find("meta", attrs={"property": property_name})
-    if not node:
-        return None
-    return node.get("content")

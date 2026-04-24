@@ -14,7 +14,7 @@ from .fetchers import (
     GoogleNewsCollector,
     InstagramInstaloaderCollector,
     MockFileCollector,
-    NothingCommunityCollector,
+    BrandCommunityCollector,
     RedditOAuthCollector,
     RedditSNScrapeCollector,
     XAPICollector,
@@ -697,8 +697,8 @@ class CameraPulsePipeline:
 def _instantiate_collector(name: str, source_cfg: dict[str, Any], product_keywords: list[str]) -> list[BaseCollector]:
     if name == "bilibili":
         return [BilibiliSearchCollector(name, source_cfg, product_keywords)]
-    if name == "nothing_community":
-        return [NothingCommunityCollector(name, source_cfg, product_keywords)]
+    if name == "brand_community" or name.endswith("_community"):
+        return [BrandCommunityCollector(name, source_cfg, product_keywords)]
     if name == "google_news":
         return [GoogleNewsCollector(name, source_cfg, product_keywords)]
     if name == "custom_rss":

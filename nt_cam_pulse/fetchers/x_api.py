@@ -39,7 +39,7 @@ class XAPICollector(BaseCollector):
         search_scope = str(self.config.get("search_scope", "recent")).strip().lower() or "recent"
         include_keywords = [str(keyword).lower() for keyword in self.config.get("include_keywords", []) if keyword]
         timeout = max(10, int(self.config.get("timeout_seconds", 30)))
-        user_agent = str(self.config.get("user_agent", "NothingCameraPulse/1.0")).strip() or "NothingCameraPulse/1.0"
+        user_agent = str(self.config.get("user_agent", "MediaPulse/1.0")).strip() or "MediaPulse/1.0"
         exclude_retweets = bool(self.config.get("exclude_retweets", True))
         exclude_replies_in_search = bool(self.config.get("exclude_replies_in_search", True))
         include_replies = bool(self.config.get("include_replies", True))
@@ -392,4 +392,4 @@ class XAPICollector(BaseCollector):
             joined = " OR ".join(f"\"{item}\"" for item in self.product_keywords[:3] if item)
             if joined:
                 return f"({joined}) (camera OR photo OR video)"
-        return "\"Nothing Phone\" (camera OR photo OR video)"
+        return "\"Target Phone\" (camera OR photo OR video)"

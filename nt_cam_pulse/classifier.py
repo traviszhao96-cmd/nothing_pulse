@@ -15,8 +15,8 @@ PRODUCT_KEYWORDS = {
     "phone3": ["phone 3", "phone3", "phone (3)"],
     "2a": ["phone 2a", "phone2a", "phone (2a)", "2a", "a142"],
     "phone2": ["phone 2", "phone2", "phone (2)", "a063"],
-    "cmf phone1": ["cmf phone 1", "cmf phone1", "cmf phone"],
-    "nothing_os": ["nothing os", "nos"],
+    "accessory phone1": ["accessory phone 1", "accessory phone1", "accessory phone"],
+    "target_os": ["target os", "tos"],
 }
 
 SENTIMENT_KEYWORDS = {

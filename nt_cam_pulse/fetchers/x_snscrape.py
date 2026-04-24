@@ -104,7 +104,7 @@ class XSnscrapeCollector(BaseCollector):
                     rss_url,
                     params={"f": "tweets", "q": query},
                     timeout=timeout,
-                    headers={"User-Agent": "NothingCameraPulse/1.0"},
+                    headers={"User-Agent": "MediaPulse/1.0"},
                 )
                 response.raise_for_status()
                 feed = feedparser.parse(response.text)
@@ -169,4 +169,4 @@ class XSnscrapeCollector(BaseCollector):
             joined = " OR ".join(f"\"{item}\"" for item in self.product_keywords[:3] if item)
             if joined:
                 return f"({joined}) (camera OR photo OR video)"
-        return "\"Nothing Phone\" (camera OR photo OR video)"
+        return "\"Target Phone\" (camera OR photo OR video)"

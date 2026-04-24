@@ -57,7 +57,7 @@ class XTWScrapeCollector(BaseCollector):
             joined = " OR ".join(f"\"{item}\"" for item in self.product_keywords[:3] if item)
             if joined:
                 return f"({joined}) (camera OR photo OR video)"
-        return "\"Nothing Phone\" (camera OR photo OR video)"
+        return "\"Target Phone\" (camera OR photo OR video)"
 
 
 def _tweet_to_feedback(

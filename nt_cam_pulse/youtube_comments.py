@@ -30,8 +30,8 @@ _NOISE_SHORT_TOKENS = {
 }
 
 _PRODUCT_HINTS = (
-    "nothing",
-    "cmf",
+    "target",
+    "accessory",
     "phone",
     "np",
     "3a",
@@ -102,7 +102,7 @@ _OWNED_PATTERNS = (
     r"\bi\s+(?:have|own|bought|purchased|got)\b",
     r"\bi(?:'m| am)\s+using\b",
     r"\bi(?:'ve| have)\s+been\s+using\b",
-    r"\bmy\s+(?:nothing\s+)?phone\b",
+    r"\bmy\s+(?:target\s+)?phone\b",
     r"\busing\s+it\s+for\s+\d+\s*(?:day|days|week|weeks|month|months)\b",
     r"(已买|买了|我在用|用了\d+天|用了\d+周|入手了)",
 )
@@ -566,7 +566,7 @@ class YouTubeCommentMiner:
             return "Signal"
         if any(token in lowered for token in ("screen", "display", "brightness", "flicker")):
             return "Screen"
-        if any(token in lowered for token in ("os", "update", "android", "nothing os", "bug", "ui")):
+        if any(token in lowered for token in ("os", "update", "android", "target os", "bug", "ui")):
             return "OS"
         if any(token in lowered for token in ("buy", "price", "availability", "ship", "stock", "purchase")):
             return "PurchaseExperience"

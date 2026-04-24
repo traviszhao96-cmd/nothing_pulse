@@ -118,7 +118,7 @@ def run_dashboard(config_path: str, host: str = "127.0.0.1", port: int = 8787, r
             self.wfile.write(payload)
 
         def _serve_runtime_config(self) -> None:
-            js = "window.NT_CAM_PULSE_CONFIG = {\"apiBaseUrl\": \"\"};\n"
+            js = "window.MEDIA_PULSE_CONFIG = {\"apiBaseUrl\": \"\"};\n"
             payload = js.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")

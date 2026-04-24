@@ -68,7 +68,7 @@ class SourceProfiler:
         text = normalize_text(" ".join([item.title, item.summary or "", item.content])).lower()
         source_blob = " ".join([source, source_section, author, self._domain(item.url)])
 
-        if source in {"nothing_community", "reddit", "reddit_snscrape"}:
+        if source in {"brand_community", "reddit", "reddit_snscrape"} or source.endswith("_community"):
             item.source_actor_type = "real_user"
             item.source_actor_reason = "来源于社区/论坛用户发帖"
             return item

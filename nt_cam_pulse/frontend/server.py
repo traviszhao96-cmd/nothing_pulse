@@ -62,7 +62,7 @@ def run_frontend_server(
 
         def _serve_runtime_config(self) -> None:
             config = {"apiBaseUrl": context.api_base_url}
-            js = f"window.NT_CAM_PULSE_CONFIG = {json.dumps(config, ensure_ascii=False)};\n"
+            js = f"window.MEDIA_PULSE_CONFIG = {json.dumps(config, ensure_ascii=False)};\n"
             payload = js.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, timedelta
+import json
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -479,16 +481,34 @@ def build_runtime_status_payload(
     repository: FeedbackRepository,
     target_date: date,
     app_config: AppConfig | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict[str, Any]:
-    rows = repository.fetch_by_report_date(target_date, camera_only=None)
+    if start_date and end_date:
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+        rows = repository.fetch_by_published_date_range(
+            start_date=start_date,
+            end_date=end_date,
+            camera_only=None,
+        )
+    else:
+        rows = repository.fetch_by_report_date(target_date, camera_only=None)
+        start_date = target_date
+        end_date = target_date
     local_ai = _local_ai_status(rows, app_config)
     video_status = _video_status(rows, app_config)
     lark_status = _lark_status(rows, repository, target_date, app_config)
+    task_status = _task_status(rows, repository, target_date, app_config, video_status, lark_status)
     return {
         "report_date": target_date.isoformat(),
+        "start_date": start_date.isoformat() if start_date else "",
+        "end_date": end_date.isoformat() if end_date else "",
         "local_ai": local_ai,
         "video_processing": video_status,
         "lark_sync": lark_status,
+        "workspace_sync": lark_status,
+        "tasks": task_status,
     }
 
 
@@ -687,6 +707,185 @@ def _lark_status(
         "failed_in_view": failed_in_range,
         "last_error": last_error,
     }
+
+
+def _task_status(
+    rows: list[Any],
+    repository: FeedbackRepository,
+    target_date: date,
+    app_config: AppConfig | None,
+    video_status: dict[str, Any],
+    lark_status: dict[str, Any],
+) -> dict[str, Any]:
+    latest_runs = _latest_process_runs(app_config)
+    total_rows = len(rows)
+    tracked_video_total = sum(1 for row in rows if _is_tracked_video_row(row))
+    camera_related_total = sum(1 for row in rows if int(row["camera_related"] or 0) == 1)
+
+    pipeline_run = latest_runs.get("run") or {}
+    competitor_run = latest_runs.get("competitor-video") or {}
+    video_run = latest_runs.get("video-process") or {}
+    sync_run = latest_runs.get("sync-lark") or latest_runs.get("sync-lark-loop") or {}
+    weekly_report = _latest_report_file(app_config, suffix=".html")
+    markdown_report = _latest_report_file(app_config, suffix=".md")
+
+    items = [
+        {
+            "id": "pipeline",
+            "title": "采集与入库",
+            "state": _run_state(pipeline_run, fallback=("ok" if total_rows > 0 else "idle")),
+            "summary": _run_summary(
+                pipeline_run,
+                fallback=f"当前日期范围共 {total_rows} 条内容，相机关联 {camera_related_total} 条",
+            ),
+            "meta": [
+                f"最新 run：{_format_run_time(pipeline_run)}",
+                f"总内容：{total_rows}",
+                f"相机关联：{camera_related_total}",
+            ],
+        },
+        {
+            "id": "competitor",
+            "title": "竞品检索",
+            "state": _run_state(competitor_run, fallback="idle"),
+            "summary": _run_summary(competitor_run, fallback="最近没有竞品检索记录"),
+            "meta": [
+                f"最近执行：{_format_run_time(competitor_run)}",
+                f"插入结果：{_run_metric(competitor_run, 'inserted', '0')}",
+                f"分析触发：{_run_metric(competitor_run, 'analyzed', '0')}",
+            ],
+        },
+        {
+            "id": "video",
+            "title": "视频分析",
+            "state": "warning" if int(video_status.get("pending") or 0) > 0 else ("danger" if int(video_status.get("failed") or 0) > 0 else "ok"),
+            "summary": f"已完成 {video_status.get('done', 0)} 条，待处理 {video_status.get('pending', 0)} 条，失败 {video_status.get('failed', 0)} 条",
+            "meta": [
+                f"最近执行：{_format_run_time(video_run)}",
+                f"视频总数：{tracked_video_total}",
+                f"夜间任务：{'开启' if video_status.get('nightly_enabled') else '关闭'}",
+            ],
+        },
+        {
+            "id": "workspace",
+            "title": "工作台同步",
+            "state": "warning" if int(lark_status.get("pending_total") or 0) > 0 else "ok",
+            "summary": f"{lark_status.get('message', '未启用')}，当前范围待同步 {lark_status.get('pending_in_view', 0)} 条",
+            "meta": [
+                f"最近执行：{_format_run_time(sync_run)}",
+                f"全量待同步：{lark_status.get('pending_total', 0)}",
+                f"当前范围已同步：{lark_status.get('synced_in_view', 0)}",
+            ],
+        },
+        {
+            "id": "reports",
+            "title": "报告生成",
+            "state": "ok" if weekly_report or markdown_report else "idle",
+            "summary": _report_summary(weekly_report, markdown_report),
+            "meta": [
+                f"最新 HTML：{weekly_report.get('label', '暂无') if weekly_report else '暂无'}",
+                f"最新 Markdown：{markdown_report.get('label', '暂无') if markdown_report else '暂无'}",
+                f"邮件发送：{'已配置' if bool(app_config and app_config.email_summary.enabled) else '未启用'}",
+            ],
+        },
+    ]
+    return {"items": items}
+
+
+def _latest_process_runs(app_config: AppConfig | None) -> dict[str, dict[str, Any]]:
+    if not app_config:
+        return {}
+    base_dir = Path(app_config.report_dir).expanduser() / "process-logs"
+    if not base_dir.exists():
+        return {}
+    latest: dict[str, dict[str, Any]] = {}
+    for path in sorted(base_dir.glob("*.summary.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        command = str(payload.get("command") or "").strip()
+        if not command or command in latest:
+            continue
+        payload["path"] = str(path)
+        latest[command] = payload
+    return latest
+
+
+def _latest_report_file(app_config: AppConfig | None, suffix: str) -> dict[str, Any] | None:
+    if not app_config:
+        return None
+    report_dir = Path(app_config.report_dir).expanduser()
+    if not report_dir.exists():
+        return None
+    candidates = [path for path in report_dir.glob(f"*{suffix}") if path.is_file()]
+    if not candidates:
+        return None
+    latest = max(candidates, key=lambda item: item.stat().st_mtime)
+    return {
+        "name": latest.name,
+        "path": str(latest),
+        "label": _display_report_label(latest.name),
+    }
+
+
+def _run_state(run: dict[str, Any], fallback: str = "idle") -> str:
+    status = str(run.get("status") or "").strip().lower()
+    if status == "ok":
+        return "ok"
+    if status == "failed":
+        return "danger"
+    if status:
+        return "warning"
+    return fallback
+
+
+def _run_summary(run: dict[str, Any], fallback: str) -> str:
+    if not run:
+        return fallback
+    status = str(run.get("status") or "unknown").strip()
+    duration = run.get("duration_seconds")
+    if duration is None:
+        return f"最近一次执行状态：{status}"
+    return f"最近一次执行状态：{status}，耗时 {duration} 秒"
+
+
+def _run_metric(run: dict[str, Any], key: str, default: str = "-") -> str:
+    value = run.get(key)
+    if value is None or value == "":
+        return default
+    return str(value)
+
+
+def _format_run_time(run: dict[str, Any]) -> str:
+    value = str(run.get("finished_at") or run.get("started_at") or "").strip()
+    if not value:
+        return "暂无"
+    return value.replace("T", " ")[:19]
+
+
+def _report_summary(weekly_report: dict[str, Any] | None, markdown_report: dict[str, Any] | None) -> str:
+    if weekly_report and markdown_report:
+        return "HTML 周报和 Markdown 日报都已生成"
+    if weekly_report:
+        return "最近已有 HTML 周报输出"
+    if markdown_report:
+        return "最近已有 Markdown 日报输出"
+    return "当前没有发现最近生成的报告文件"
+
+
+def _display_report_label(filename: str) -> str:
+    label = str(filename or "").strip()
+    if not label:
+        return "暂无"
+    if "social-summary-" in label and not label.startswith("media-pulse-social-summary"):
+        label = f"media-pulse-{label.split('social-summary-', 1)[1]}"
+        label = f"media-pulse-social-summary-{label.split('media-pulse-', 1)[1]}"
+    if label.startswith("weekly-media-email"):
+        label = label.replace("weekly-media-email", "media-pulse-weekly-email", 1)
+    if label.startswith("camera-pulse"):
+        label = label.replace("camera-pulse", "media-pulse", 1)
+    return label
 
 
 def _probe_local_ai(app_config: AppConfig) -> tuple[bool, str]:

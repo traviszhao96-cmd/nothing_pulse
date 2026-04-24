@@ -142,7 +142,7 @@ def build_weekly_media_email(
         platform_counts=platform_counts,
         focus_groups=focus_groups,
     )
-    subject_prefix = str(config.email_summary.subject_prefix or "[Nothing Camera Pulse]").strip()
+    subject_prefix = str(config.email_summary.subject_prefix or "[Media Pulse]").strip()
     report_title = _weekly_report_title(config)
     subject = f"{subject_prefix} {report_title} {resolved_start.isoformat()} ~ {resolved_end.isoformat()}"
 
@@ -239,9 +239,7 @@ def _weekly_report_title(config: AppConfig) -> str:
         return "DJI Pocket 4 影像观点周报"
     if "x300" in subject_prefix:
         return "vivo X300 系列影像观点周报"
-    if "nothing" in subject_prefix:
-        return "Nothing Camera 上市以来社媒反馈趋势总结"
-    return "媒体影像周报"
+    return "Media Pulse 影像观点周报"
 
 
 def _filter_rows_for_scope(rows: list[Any], scope: str) -> list[Any]:
@@ -785,7 +783,7 @@ def _render_html_body(
   <body>
     <div class="wrapper">
       <section class="hero">
-        <p class="kicker">Nothing Camera Pulse</p>
+        <p class="kicker">Media Pulse</p>
         <h1>{_escape(report_title)}</h1>
         <p>{_escape(range_text)}</p>
       </section>
@@ -1578,8 +1576,8 @@ def _platform_label(row: Any) -> str:
         return "Instagram"
     if source.startswith("reddit") or "reddit.com" in host:
         return "Reddit"
-    if source == "nothing_community" or "nothing.community" in host:
-        return "Nothing Community"
+    if source == "brand_community" or source.endswith("_community") or "community." in host:
+        return "品牌社区"
     if source in {"google_news", "custom_rss"}:
         return "媒体站点"
     if source_section and source_section.lower() in {"news", "article", "blog", "rss"}:
@@ -1612,7 +1610,7 @@ def _format_product_label(value: str) -> str:
         "phone3": "Phone (3)",
         "phone2": "Phone (2)",
         "2a": "Phone (2a)",
-        "cmf phone1": "CMF Phone 1",
+        "cmf phone1": "Accessory Phone 1",
     }
     return aliases.get(raw.lower(), raw)
 
@@ -1698,11 +1696,11 @@ def _localize_comment_text(point: dict[str, Any]) -> str:
         (("hdr", "turning on", "camera app"), "HDR 会自动开启，手动关闭后重新打开相机又会恢复，影响拍照体验。"),
         (("doesn't match", "gallery"), "取景预览和最终保存到相册的成片不一致，这已经不是个别现象。"),
         (("140", "zoom"), "超高倍变焦更像宣传卖点，实际使用频率和成片质量都比较有限。"),
-        (("degoogled", "nothingos"), "有去 Google 化系统用户对 Nothing OS 感兴趣，但对生态迁移仍有顾虑。"),
-        (("degoogled", "notingos"), "有去 Google 化系统用户对 Nothing OS 感兴趣，但对生态迁移仍有顾虑。"),
+        (("degoogled", "target os"), "有去 Google 化系统用户对目标系统感兴趣，但对生态迁移仍有顾虑。"),
+        (("degoogled", "brand os"), "有去 Google 化系统用户对目标系统感兴趣，但对生态迁移仍有顾虑。"),
         (("battery", "draining"), "有用户反馈续航下降较快，希望后续更新继续优化功耗表现。"),
         (("heating",), "有用户提到发热问题，说明日常使用稳定性还有优化空间。"),
-        (("dslr", "cinematic"), "有用户认为相机依然是换机关键，说明影像能力仍有机会帮助 Nothing 争取更多潜在用户。"),
+        (("dslr", "cinematic"), "有用户认为相机依然是换机关键，说明影像能力仍有机会帮助目标品牌争取更多潜在用户。"),
         (("bought", "samsung", "zoom"), "有用户直言高倍变焦在真实使用中的频率很低，说明这类能力更像加分项而不是核心卖点。"),
     ]
     for cues, result in patterns:
@@ -1715,7 +1713,7 @@ def _localize_comment_text(point: dict[str, Any]) -> str:
         if primary_tag == "camera" and sentiment == "negative":
             return "评论区反馈了相机体验问题，核心集中在稳定性、一致性或功能控制不够可靠。"
         if primary_tag == "camera" and sentiment == "positive":
-            return "评论区对相机表现给出了正向评价，认为影像仍然是 Nothing 的关键吸引点。"
+            return "评论区对相机表现给出了正向评价，认为影像仍然是目标品牌的关键吸引点。"
         if sentiment == "negative":
             return "评论区出现了明确负面反馈，说明用户对当前体验仍有实际顾虑。"
         if sentiment == "positive":
@@ -1742,5 +1740,5 @@ def _should_localize_point_as_comment(point: dict[str, Any]) -> bool:
         return True
     return _looks_mostly_ascii(text) and any(
         cue in normalized
-        for cue in ("hdr", "gallery", "degoogled", "notingos", "nothingos", "zoom", "dslr", "cinematic", "camera issue")
+        for cue in ("hdr", "gallery", "degoogled", "target os", "brand os", "zoom", "dslr", "cinematic", "camera issue")
     )

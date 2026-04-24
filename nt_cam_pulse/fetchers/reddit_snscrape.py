@@ -88,7 +88,7 @@ class RedditSNScrapeCollector(BaseCollector):
         limit = max(1, min(300, int(self.config.get("limit", 80))))
         timeout = max(8, int(self.config.get("timeout_seconds", 30)))
         include_keywords = [str(keyword).lower() for keyword in self.config.get("include_keywords", []) if keyword]
-        user_agent = str(self.config.get("user_agent", "NothingCameraPulse/1.0")).strip() or "NothingCameraPulse/1.0"
+        user_agent = str(self.config.get("user_agent", "MediaPulse/1.0")).strip() or "MediaPulse/1.0"
         since_utc = since.astimezone(timezone.utc)
 
         if not subreddits:
@@ -175,4 +175,4 @@ class RedditSNScrapeCollector(BaseCollector):
             joined = " OR ".join(f"\"{item}\"" for item in self.product_keywords[:3] if item)
             if joined:
                 return f"({joined}) (camera OR photo OR video)"
-        return "\"Nothing Phone\" (camera OR photo OR video)"
+        return "\"Target Phone\" (camera OR photo OR video)"

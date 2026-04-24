@@ -38,7 +38,7 @@ def generate_daily_report(repository: FeedbackRepository, target_date: date, rep
     high_risk_rows = sorted(high_risk_rows, key=lambda item: item["published_at"], reverse=True)[:10]
 
     report_lines: list[str] = []
-    report_lines.append(f"# Nothing Camera Pulse 日报 - {target_date.isoformat()}")
+    report_lines.append(f"# Media Pulse 日报 - {target_date.isoformat()}")
     report_lines.append("")
 
     report_lines.append("## 1. 今日概览")
@@ -135,6 +135,6 @@ def generate_daily_report(repository: FeedbackRepository, target_date: date, rep
     report_lines.append("")
 
     output_dir = ensure_dir(report_dir)
-    output_path = output_dir / f"camera-pulse-{target_date.isoformat()}.md"
+    output_path = output_dir / f"media-pulse-{target_date.isoformat()}.md"
     output_path.write_text("\n".join(report_lines), encoding="utf-8")
     return output_path

@@ -22,7 +22,7 @@ class ArticleBodyExtractor:
         self.max_chars = max(1000, int(max_chars))
         self._cache: dict[str, ArticleBodyResult] = {}
         self._google_decode_cache: dict[str, str] = {}
-        self._headers = {"User-Agent": "Mozilla/5.0 (compatible; NothingCameraPulse/1.0)"}
+        self._headers = {"User-Agent": "Mozilla/5.0 (compatible; MediaPulse/1.0)"}
 
     def fetch(self, url: str) -> ArticleBodyResult:
         if not url:

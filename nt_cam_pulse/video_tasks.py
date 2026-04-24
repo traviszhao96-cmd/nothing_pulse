@@ -13,7 +13,7 @@ def export_video_tasks(repository: FeedbackRepository, target_date: date, output
     lines.append(f"# Video Tasks - {target_date.isoformat()}")
     lines.append("")
     lines.append(
-        "建议使用 videosummary 执行：`python /Users/travis.zhao/videosummary/transcribe.py --url <视频链接> --prompts camera_feedback`"
+        "建议使用 videosummary 执行：`python /path/to/videosummary/transcribe.py --url <视频链接> --prompts camera_feedback`"
     )
     lines.append("")
 

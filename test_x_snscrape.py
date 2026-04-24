@@ -13,15 +13,15 @@ def test_snscrape():
     
     # 模拟配置
     config = {
-        "query": '(Nothing Phone) (camera OR photo OR video OR 相机 OR 拍照 OR 评测)',
+        "query": '(Target Phone) (camera OR photo OR video OR 相机 OR 拍照 OR 评测)',
         "limit": 10,
         "timeout_seconds": 30,
         "nitter_instances": ["https://nitter.net", "https://nitter.poast.org", "https://nitter.1d4.us"],
-        "include_keywords": ["nothing", "camera", "photo", "video", "相机", "拍照", "评测"]
+        "include_keywords": ["target", "camera", "photo", "video", "相机", "拍照", "评测"]
     }
     
     # 产品关键词
-    product_keywords = ["Nothing Phone", "phone 4a", "phone 4a pro"]
+    product_keywords = ["Target Phone", "device pro", "device ultra"]
     
     # 创建收集器
     collector = XSnscrapeCollector(

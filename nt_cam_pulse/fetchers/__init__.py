@@ -3,7 +3,7 @@ from .custom_rss import CustomRSSCollector
 from .google_news import GoogleNewsCollector
 from .instagram_instaloader import InstagramInstaloaderCollector
 from .mock_file import MockFileCollector
-from .nothing_community import NothingCommunityCollector
+from .brand_community import BrandCommunityCollector
 from .reddit import RedditOAuthCollector
 from .reddit_snscrape import RedditSNScrapeCollector
 from .x_api import XAPICollector
@@ -18,7 +18,7 @@ __all__ = [
     "GoogleNewsCollector",
     "InstagramInstaloaderCollector",
     "MockFileCollector",
-    "NothingCommunityCollector",
+    "BrandCommunityCollector",
     "RedditOAuthCollector",
     "RedditSNScrapeCollector",
     "XAPICollector",

@@ -19,8 +19,8 @@ class RedditOAuthCollector(BaseCollector):
         since = self._effective_since(since)
         client_id = clean_content_text(str(self.config.get("client_id", "")))
         client_secret = clean_content_text(str(self.config.get("client_secret", "")))
-        user_agent = str(self.config.get("user_agent", "NothingFeedbackBot/1.0")).strip() or "NothingFeedbackBot/1.0"
-        query = str(self.config.get("query", "\"Nothing Phone\"")).strip() or "\"Nothing Phone\""
+        user_agent = str(self.config.get("user_agent", "MediaPulseBot/1.0")).strip() or "MediaPulseBot/1.0"
+        query = str(self.config.get("query", "\"Target Phone\"")).strip() or "\"Target Phone\""
         limit = max(1, min(300, int(self.config.get("limit", 80))))
         per_subreddit_limit = max(1, min(200, int(self.config.get("per_subreddit_limit", limit))))
         subreddits = [str(name).strip() for name in self.config.get("subreddits", []) if str(name).strip()]
@@ -193,7 +193,7 @@ class RedditOAuthCollector(BaseCollector):
         after = int(since_utc.timestamp())
         pullpush_base = str(self.config.get("pullpush_base_url", self.PULLPUSH_BASE)).rstrip("/")
         timeout = max(10, int(self.config.get("pullpush_timeout_seconds", 30)))
-        user_agent = str(self.config.get("user_agent", "NothingFeedbackBot/1.0")).strip() or "NothingFeedbackBot/1.0"
+        user_agent = str(self.config.get("user_agent", "MediaPulseBot/1.0")).strip() or "MediaPulseBot/1.0"
 
         seen: set[str] = set()
         items: list[FeedbackItem] = []

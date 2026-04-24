@@ -11,7 +11,7 @@ DEFAULT_VIDEO_LINKS_FILE = "reports/video-links.txt"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Nothing Camera Pulse")
+    parser = argparse.ArgumentParser(description="Media Pulse")
     parser.add_argument("--config", default="config.yaml", help="Path to config yaml")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--compare-to",
         action="append",
         default=[],
-        help="Reference model for VS queries, e.g. 'Nothing Phone 4a Pro'. Repeatable.",
+        help="Reference model for VS queries, e.g. 'Target Device Pro'. Repeatable.",
     )
     competitor_video_parser.add_argument(
         "--query",
@@ -239,7 +239,7 @@ def run_once(config_path: str, report_date: date | None, skip_lark: bool, dry_ru
         )
     except Exception as exc:  # noqa: BLE001
         logger.finish("failed", error=str(exc))
-        print("=== Nothing Camera Pulse ===")
+        print("=== Media Pulse ===")
         print("ok=False")
         print(f"error={exc}")
         print(f"process_log_path={logger.path}")
@@ -261,7 +261,7 @@ def run_once(config_path: str, report_date: date | None, skip_lark: bool, dry_ru
         errors=result.errors,
     )
 
-    print("=== Nothing Camera Pulse ===")
+    print("=== Media Pulse ===")
     print(f"fetched={result.fetched}")
     print(f"kept_camera_only={result.kept_camera_only}")
     print(f"retained_non_camera={result.retained_non_camera}")
@@ -313,7 +313,7 @@ def run_schedule(config_path: str) -> int:
     scheduler.add_job(
         lambda: run_once(config_path, None, skip_lark=False, dry_run=False),
         trigger=CronTrigger(hour=hour, minute=minute),
-        id="nothing_camera_pulse_daily",
+        id="media_pulse_daily",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
@@ -334,7 +334,7 @@ def run_schedule(config_path: str) -> int:
                 minute=config.video_processing.nightly_minute,
                 timezone=nightly_tz,
             ),
-            id="nothing_camera_video_nightly",
+            id="media_pulse_video_nightly",
             replace_existing=True,
             max_instances=1,
             coalesce=True,
@@ -747,7 +747,7 @@ def main() -> int:
         from .email_summary import send_email_message
 
         config = load_config(args.config)
-        subject_prefix = str(config.email_summary.subject_prefix or "[Nothing Camera Pulse]").strip()
+        subject_prefix = str(config.email_summary.subject_prefix or "[Media Pulse]").strip()
         subject = args.subject or f"{subject_prefix} SMTP 测试邮件"
         body = args.body or "这是一封测试邮件，用来验证 SMTP 连接、登录和 HTML 邮件发送链路。"
         html_body = None
@@ -757,7 +757,7 @@ def main() -> int:
             html_body = (
                 "<!doctype html><html><body>"
                 f"<p>{body}</p>"
-                "<p style=\"color:#666;font-size:12px;\">Nothing Camera Pulse test email</p>"
+                "<p style=\"color:#666;font-size:12px;\">Media Pulse test email</p>"
                 "</body></html>"
             )
         try:

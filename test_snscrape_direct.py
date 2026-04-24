@@ -11,7 +11,7 @@ import snscrape.modules.twitter as sntwitter
 def test_snscrape_direct():
     """测试直接snscrape"""
     
-    query = "Nothing Phone camera"
+    query = "Target Phone camera"
     limit = 10
     
     print(f"测试snscrape直接查询: {query}")

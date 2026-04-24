@@ -118,7 +118,7 @@ def build_daily_summary_email(
             if isinstance(source_cfg, dict) and source_cfg.get("enabled")
         ]
 
-    subject_prefix = str(config.email_summary.subject_prefix or "[Nothing Camera Pulse]").strip()
+    subject_prefix = str(config.email_summary.subject_prefix or "[Media Pulse]").strip()
     subject = f"{subject_prefix} 每日处理汇报 {target_date.isoformat()}"
     collector_lines = [
         _format_collector_line(entry)
@@ -130,7 +130,7 @@ def build_daily_summary_email(
     run_log_text = run_log_resolved or "未找到对应 run 日志"
 
     body_lines = [
-        f"Nothing Camera Pulse 每日处理汇报 - {target_date.isoformat()}",
+        f"Media Pulse 每日处理汇报 - {target_date.isoformat()}",
         "",
         "1. 搜索平台",
         *(collector_lines or ["- 未找到本次 run 的平台搜索记录"]),
